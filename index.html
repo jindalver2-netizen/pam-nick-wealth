@@ -3,25 +3,73 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>DhanRakshak — Personal Finance Tracker</title>
-  <meta name="description" content="Track income, expenses, transfers, investments and net worth effortlessly.">
+  <title>Nick Wealth OS — Personal Wealth Engine</title>
+  <meta name="description" content="Nick's bespoke personal wealth operating system and financial command center.">
   <meta name="theme-color" content="#0a0a1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
+  <!-- Wealth Manifestation Cover / Splash -->
+  <div id="manifestation-screen" class="manifestation-screen">
+    <div class="manifestation-backdrop" style="background-image: url('/nick-wealth.jpg')"></div>
+    <div class="manifestation-glass-overlay"></div>
+    
+    <div class="manifestation-card">
+      <div class="manifestation-portrait-wrap">
+        <img src="/nick-wealth.jpg" alt="Nick - Wealth Manifestation" class="manifestation-portrait">
+        <div class="manifestation-portrait-badge">👑 NICK WEALTH OS</div>
+      </div>
+      
+      <div class="manifestation-details">
+        <div class="manifestation-eyebrow">PERSONAL WEALTH ENGINE</div>
+        <h1 class="manifestation-title">Architect of Abundance</h1>
+        
+        <p class="manifestation-mantra">
+          "Wealth, prosperity, and financial dominion flow effortlessly into my life. Every decision expands my freedom and multiplies my empire."
+        </p>
+
+        <div class="manifestation-pillars">
+          <div class="m-pillar">
+            <span class="m-pillar-icon">💎</span>
+            <span class="m-pillar-text">Uncapped Net Worth</span>
+          </div>
+          <div class="m-pillar">
+            <span class="m-pillar-icon">⚡</span>
+            <span class="m-pillar-text">Total Cashflow Mastery</span>
+          </div>
+          <div class="m-pillar">
+            <span class="m-pillar-icon">🏛️</span>
+            <span class="m-pillar-text">Generational Freedom</span>
+          </div>
+        </div>
+
+        <button id="enter-app-btn" class="manifestation-btn">
+          <span>Enter Wealth Engine</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+            <polyline points="12 5 19 12 12 19"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="app">
     <!-- Sidebar Navigation (Desktop) -->
     <aside id="sidebar">
-      <div class="sidebar-brand">
-        <span class="brand-icon">💰</span>
-        <span class="brand-name">DhanRakshak</span>
+      <div class="sidebar-brand" id="sidebar-profile-btn" title="Click to view Wealth Manifestation">
+        <img src="/nick-wealth.jpg" alt="Nick" class="brand-avatar">
+        <div class="brand-text-wrap">
+          <span class="brand-name">Nick Wealth OS</span>
+          <span class="brand-tagline">Wealth Engine</span>
+        </div>
       </div>
       <nav class="sidebar-nav">
         <a href="#/" class="nav-item active" data-view="home" id="nav-home">

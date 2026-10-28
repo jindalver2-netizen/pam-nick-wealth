@@ -1474,7 +1474,7 @@ async function renderReports(container) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhanrakshak-transactions-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `nick-wealth-transactions-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('CSV exported!', 'success');
@@ -1563,9 +1563,19 @@ async function renderSettings(container) {
     </div>
 
     <div class="section">
+      <div class="section-header"><h2>Wealth Manifestation</h2></div>
+      <p style="color:var(--text-secondary);font-size:var(--fs-sm);margin-bottom:var(--sp-3)">
+        Recharge your abundance mindset anytime with your bespoke billionaire visualization.
+      </p>
+      <button class="btn btn-secondary" id="open-manifest-settings-btn" style="border-color:#fbbf24;color:#fbbf24">
+        👑 View Wealth Manifestation Screen
+      </button>
+    </div>
+
+    <div class="section">
       <div class="section-header"><h2>Demo & Test Data</h2></div>
       <p style="color:var(--text-secondary);font-size:var(--fs-sm);margin-bottom:var(--sp-3)">
-        Explore DhanRakshak with realistic Indian financial data (salary, UPI spends, PPF, Mutual Funds, Gold, FD, and snapshots).
+        Explore Nick Wealth OS with realistic financial data (salary, UPI spends, PPF, Mutual Funds, Gold, FD, and snapshots).
       </p>
       <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;">
         <button class="btn btn-primary" id="load-sample-btn">✨ Load Sample Demo Data</button>
@@ -1611,7 +1621,7 @@ async function renderSettings(container) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhanrakshak-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `nick-wealth-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('Backup exported!', 'success');
@@ -1643,10 +1653,15 @@ async function renderSettings(container) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhanrakshak-transactions-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `nick-wealth-transactions-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('CSV exported!', 'success');
+  });
+
+  // Reopen Manifestation Screen
+  $('#open-manifest-settings-btn')?.addEventListener('click', () => {
+    $('#manifestation-screen')?.classList.remove('entered');
   });
 
   // Demo data and reset handlers
@@ -1747,6 +1762,37 @@ async function init() {
   // Route handler
   window.addEventListener('hashchange', handleRoute);
   await handleRoute();
+
+  // Manifestation Screen logic
+  const manifestationScreen = $('#manifestation-screen');
+  const enterAppBtn = $('#enter-app-btn');
+  const profileTrigger = $('#sidebar-profile-btn');
+
+  function openManifestation() {
+    if (manifestationScreen) {
+      manifestationScreen.classList.remove('entered');
+    }
+  }
+
+  function closeManifestation() {
+    if (manifestationScreen) {
+      manifestationScreen.classList.add('entered');
+      sessionStorage.setItem('nick_entered_engine', 'true');
+    }
+  }
+
+  if (enterAppBtn) {
+    enterAppBtn.addEventListener('click', closeManifestation);
+  }
+
+  if (profileTrigger) {
+    profileTrigger.addEventListener('click', openManifestation);
+  }
+
+  // Check if session has already entered
+  if (sessionStorage.getItem('nick_entered_engine') === 'true') {
+    manifestationScreen?.classList.add('entered');
+  }
 
   // Global Quick Add Floating Action Button
   const fab = $('#global-fab');

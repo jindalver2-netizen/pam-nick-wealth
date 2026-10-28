@@ -1,7 +1,7 @@
 {
-  "name": "DhanRakshak",
-  "short_name": "DhanRakshak",
-  "description": "Personal Finance & Wealth Tracker",
+  "name": "Nick Wealth OS",
+  "short_name": "Nick Wealth",
+  "description": "Personal Wealth Engine & Financial Mastery System",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a1a",

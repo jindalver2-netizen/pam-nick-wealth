@@ -1,53 +1,32 @@
-# 💰 DhanRakshak — Personal Finance & Wealth Tracker
+# 👑 Nick Wealth OS — Personal Wealth Engine & Mastery System
 
-A lightning-fast, privacy-first personal finance and wealth management progressive web application (PWA) designed for effortless daily tracking, accurate balances, and holistic net worth monitoring.
+A bespoke, lightning-fast personal wealth management system and executive command center built for **Nick** to effortlessly track cashflow, monitor investments, manifest abundance, and build generational wealth.
 
 ---
 
 ## 🌟 Key Features
 
-- **⚡ Fast Natural Language Quick Entry**: Type `50 chai PhonePe` or `5000 salary cash` to log in 2 seconds.
-- **📩 Indian Bank SMS Parser**: Paste SMS from HDFC, SBI, ICICI, Axis, UPI (PhonePe, GPay, Paytm) for automatic transaction parsing.
-- **🏦 Comprehensive Account Management**: Cash, Bank Accounts, UPI Wallets, and Credit Cards with real-time balance calculations.
-- **📈 Wealth & Asset Tracking**: Track Fixed Deposits (FD), PF, PPF, Mutual Funds, Stocks, Gold, and Real Estate with valuation logs.
+- **👑 Wealth Manifestation Cover**: Bespoke billionaire visualization cover page greeting you every time you open the app to anchor an abundance mindset.
+- **⚡ Natural Language Fast Entry**: Type `50 chai PhonePe` or `5000 salary cash` to log transactions in 2 seconds.
+- **📩 Indian Bank SMS Parser**: Paste SMS alerts from HDFC, SBI, ICICI, Axis, and UPI apps to auto-fill transactions.
+- **🏦 Comprehensive Liquid Accounts**: Real-time tracking of cash, multiple bank accounts, and digital wallets.
+- **📈 Wealth & Asset Portfolio**: Track Fixed Deposits (FD), PF, PPF, Mutual Funds, Stocks, Gold, and Real Estate with periodic valuation logs.
 - **📊 Visual Analytics**: Monthly Cash Flow, Savings Rate, Category Breakdown Doughnut, and Daily Spending Velocity charts.
-- **📸 Net Worth Snapshots**: Capture point-in-time portfolio snapshots to see your wealth growth over time.
-- **📱 PWA & Offline First**: Works 100% offline via local IndexedDB. Installable on Android, iOS, Windows, and Mac.
-- **🔒 Zero-Knowledge Privacy**: No logins required, no central server storing your financial secrets.
+- **📸 Net Worth Snapshots**: Capture historical net worth records to track your wealth trajectory over time.
+- **📱 PWA & Offline First**: 100% offline functionality with local IndexedDB storage. Installable on both mobile and desktop.
+- **🔒 Zero-Knowledge Privacy**: No tracking, zero third-party servers storing financial data.
 - **📦 Data Portability**: 1-click JSON full backup/restore and CSV transaction exports.
 
 ---
 
-## 🚀 Getting Started
-
-### 1. Run Locally
+## 🚀 Running Locally
 
 ```bash
 # Install dependencies
 npm install
 
-# Start local development server
+# Start development server
 npm run dev
 ```
 
 Visit `http://localhost:5173/` in your browser.
-
-### 2. Build for Production
-
-```bash
-npm run build
-```
-
-The production-ready output will be placed in the `dist/` directory.
-
----
-
-## 🌐 Deploying to Vercel / Netlify (Continuous Deployment via GitHub)
-
-1. Push this repository to your **GitHub** account.
-2. Go to [Vercel](https://vercel.com) or [Netlify](https://netlify.com) and log in with GitHub.
-3. Click **"Add New Project"** and select your `dhanrakshak` repository.
-4. Framework Preset will auto-detect as **Vite**.
-5. Click **Deploy**.
-
-> **Automatic Updates**: Every time you commit and push new changes to GitHub (`git push`), Vercel/Netlify will automatically rebuild and update your live mobile/laptop app in ~20 seconds!
