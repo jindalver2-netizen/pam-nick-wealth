@@ -1,5 +1,5 @@
-// DhanRakshak Service Worker — Offline caching
-const CACHE_NAME = 'dhanrakshak-v1';
+// Nick Wealth OS Service Worker — Offline caching
+const CACHE_NAME = 'nick-wealth-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

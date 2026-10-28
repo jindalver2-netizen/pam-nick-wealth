@@ -1789,11 +1789,6 @@ async function init() {
     profileTrigger.addEventListener('click', openManifestation);
   }
 
-  // Check if session has already entered
-  if (sessionStorage.getItem('nick_entered_engine') === 'true') {
-    manifestationScreen?.classList.add('entered');
-  }
-
   // Global Quick Add Floating Action Button
   const fab = $('#global-fab');
   if (fab) {
