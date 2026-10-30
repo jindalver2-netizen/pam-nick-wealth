@@ -8,14 +8,19 @@ import {
   getCategories, createCategory, updateCategory, deleteCategory,
   createTransaction, updateTransaction, deleteTransaction, getTransaction, getTransactions, getRecentTransactions,
   getAccountBalance, getAllBalances, getTotalLiquidMoney,
-  getMonthlyReport, getPreviousMonthReport,
+  getMonthlyReport, getPreviousMonthReport, getDateRangeReport,
   createAsset, updateAsset, getActiveAssets, addValuation, getValuations,
   getNetWorth,
   createSnapshot, getSnapshots, getSnapshotBalances,
   exportToCSV, exportFullBackup, importFullBackup,
+  createLendBorrow, recordLendBorrowRepayment, getLendBorrowList, getLendBorrowSummary, getLendBorrowRepayments,
+  createLiability, updateLiability, deleteLiability, getLiabilities, recordLiabilityRepayment, getLiabilityRepayments,
+  createSubscription, updateSubscription, deleteSubscription, getSubscriptions, markSubscriptionPaid,
+  createInsurancePolicy, updateInsurancePolicy, deleteInsurancePolicy, getInsurancePolicies,
   getSetting, setSetting,
   seedSampleData, clearAllData
 } from './db.js';
+import { KNOWLEDGE_GUIDES, LEARNING_JOURNEYS } from './knowledge.js';
 import { parseEntry, parseBankSMS } from './parser.js';
 import { Chart, registerables } from 'chart.js';
 
@@ -134,7 +139,11 @@ const routes = {
   '/transactions': renderTransactions,
   '/accounts': renderAccounts,
   '/investments': renderInvestments,
+  '/lending': renderLending,
+  '/liabilities': renderLiabilities,
+  '/insurance': renderInsurance,
   '/reports': renderReports,
+  '/knowledge': renderKnowledge,
   '/settings': renderSettings,
 };
 
@@ -674,46 +683,69 @@ async function renderHome(container) {
   setupTransactionItemHandlers();
 }
 
-// ── Transaction List Renderer ─────────────────────────────────────────
+// ── Transaction List Renderer (Daily Money Movement) ──────────────────
 
 function renderTransactionList(txns, catMap, accMap) {
   let html = '';
-  let lastDate = '';
-
+  
+  // Group transactions by date
+  const groups = {};
   for (const t of txns) {
-    const dateStr = t.date?.split('T')[0] || '';
-    if (dateStr !== lastDate) {
-      lastDate = dateStr;
-      html += `<div class="date-group-header">${formatDate(dateStr)}</div>`;
+    const dateStr = t.date?.split('T')[0] || 'Unknown';
+    if (!groups[dateStr]) groups[dateStr] = [];
+    groups[dateStr].push(t);
+  }
+
+  for (const [dateStr, dayTxns] of Object.entries(groups)) {
+    let dayIncome = 0;
+    let dayExpense = 0;
+
+    for (const t of dayTxns) {
+      if (t.type === 'income') dayIncome += t.amount;
+      else if (t.type === 'expense') dayExpense += t.amount;
     }
-
-    const cat = catMap[t.categoryId];
-    const acc = accMap[t.accountId];
-    const toAcc = t.toAccountId ? accMap[t.toAccountId] : null;
-
-    const icon = t.type === 'transfer' ? '🔄' : (cat?.icon || (t.type === 'income' ? '💰' : '📌'));
-    const desc = t.description || cat?.name || t.type;
-    const accName = t.type === 'transfer'
-      ? `${acc?.name || '?'} → ${toAcc?.name || '?'}`
-      : (acc?.name || '');
+    const dayNet = dayIncome - dayExpense;
 
     html += `
-      <div class="txn-item" data-txn-id="${t.id}">
-        <div class="txn-icon ${t.type}">${icon}</div>
-        <div class="txn-details">
-          <div class="txn-desc">${escapeHtml(desc)}</div>
-          <div class="txn-meta">${cat?.name ? escapeHtml(cat.name) + ' · ' : ''}${formatTime(t.date)}</div>
-        </div>
-        <div class="txn-amount">
-          <div class="amount ${t.type}">${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}${formatCurrency(t.amount)}</div>
-          <div class="account">${escapeHtml(accName)}</div>
-        </div>
-        <div class="txn-actions">
-          <button class="txn-action-btn edit" title="Edit" data-edit-id="${t.id}">✏️</button>
-          <button class="txn-action-btn delete" title="Delete" data-delete-id="${t.id}">🗑️</button>
+      <div class="date-group-header-wrap">
+        <div class="date-group-title">📅 ${formatDate(dateStr)}</div>
+        <div class="date-group-summary">
+          ${dayIncome > 0 ? `<span class="sum-inc">+${formatCurrency(dayIncome)}</span>` : ''}
+          ${dayExpense > 0 ? `<span class="sum-exp">-${formatCurrency(dayExpense)}</span>` : ''}
+          <span class="sum-net">Net: ${dayNet >= 0 ? '+' : ''}${formatCurrency(dayNet)}</span>
         </div>
       </div>
     `;
+
+    for (const t of dayTxns) {
+      const cat = catMap[t.categoryId];
+      const acc = accMap[t.accountId];
+      const toAcc = t.toAccountId ? accMap[t.toAccountId] : null;
+
+      const icon = t.type === 'transfer' ? '🔄' : (cat?.icon || (t.type === 'income' ? '💰' : '📌'));
+      const desc = t.description || cat?.name || t.type;
+      const accName = t.type === 'transfer'
+        ? `${acc?.name || '?'} → ${toAcc?.name || '?'}`
+        : (acc?.name || '');
+
+      html += `
+        <div class="txn-item" data-txn-id="${t.id}">
+          <div class="txn-icon ${t.type}">${icon}</div>
+          <div class="txn-details">
+            <div class="txn-desc">${escapeHtml(desc)}</div>
+            <div class="txn-meta">${cat?.name ? escapeHtml(cat.name) + ' · ' : ''}${formatTime(t.date)}</div>
+          </div>
+          <div class="txn-amount">
+            <div class="amount ${t.type}">${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}${formatCurrency(t.amount)}</div>
+            <div class="account">${escapeHtml(accName)}</div>
+          </div>
+          <div class="txn-actions">
+            <button class="txn-action-btn edit" title="Edit" data-edit-id="${t.id}">✏️</button>
+            <button class="txn-action-btn delete" title="Delete" data-delete-id="${t.id}">🗑️</button>
+          </div>
+        </div>
+      `;
+    }
   }
 
   return html;
@@ -748,7 +780,7 @@ function setupTransactionItemHandlers() {
   });
 }
 
-// ── TRANSACTIONS VIEW ─────────────────────────────────────────────────
+// ── TRANSACTIONS & SUBSCRIPTIONS VIEW ─────────────────────────────────
 
 async function renderTransactions(container) {
   const accounts = await getActiveAccounts();
@@ -758,58 +790,567 @@ async function renderTransactions(container) {
   const accMap = {};
   accounts.forEach(a => accMap[a.id] = a);
 
+  let currentTab = 'ledger'; // 'ledger' or 'subscriptions'
+  let activePreset = 'month'; // 'today', 'yesterday', '7days', '30days', 'month', 'prev_month', 'year', 'custom'
+
   container.innerHTML = `
     <div class="page-header">
-      <h1>Transactions</h1>
-      <p>All financial activity</p>
+      <h1>Money Movement & Bills</h1>
+      <p>Transactions, daily money movement & recurring subscriptions</p>
     </div>
 
-    <div class="toolbar">
-      <select id="txn-filter-type" class="form-control">
-        <option value="">All Types</option>
-        <option value="income">Income</option>
-        <option value="expense">Expense</option>
-        <option value="transfer">Transfer</option>
-      </select>
-      <select id="txn-filter-account" class="form-control">
-        <option value="">All Accounts</option>
-        ${accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}
-      </select>
-      <input type="month" id="txn-filter-month" class="form-control" value="${new Date().toISOString().slice(0, 7)}">
-      <button class="btn btn-primary" id="add-txn-btn">+ New</button>
+    <!-- Top View Tabs -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tab-btn-ledger">📋 Daily Money Movement</button>
+      <button class="view-tab" id="tab-btn-subs">🔄 Subscriptions & Recurring Bills</button>
     </div>
 
-    <div class="txn-list" id="txn-list-container"></div>
+    <!-- Main Tab Panes -->
+    <div id="pane-ledger">
+      <!-- Search & Filters -->
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-4);margin-bottom:var(--sp-4);">
+        <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-3);">
+          <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="txn-search-input" class="form-control" placeholder="Search by description, category, amount, notes, account...">
+          </div>
+          <button class="btn btn-primary" id="add-txn-btn">+ New Transaction</button>
+        </div>
+
+        <!-- Quick Date Presets -->
+        <div class="filter-presets">
+          <button class="filter-preset-btn" data-preset="today">Today</button>
+          <button class="filter-preset-btn" data-preset="yesterday">Yesterday</button>
+          <button class="filter-preset-btn" data-preset="7days">Last 7 Days</button>
+          <button class="filter-preset-btn" data-preset="30days">Last 30 Days</button>
+          <button class="filter-preset-btn active" data-preset="month">This Month</button>
+          <button class="filter-preset-btn" data-preset="prev_month">Previous Month</button>
+          <button class="filter-preset-btn" data-preset="year">This Year</button>
+          <button class="filter-preset-btn" data-preset="custom">Custom Range</button>
+        </div>
+
+        <!-- Secondary Filter Controls -->
+        <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;">
+          <div id="custom-date-wrap" style="display:none;gap:var(--sp-2);align-items:center;">
+            <input type="date" id="txn-date-from" class="form-control" style="font-size:12px;padding:4px 8px;">
+            <span style="color:var(--text-secondary);font-size:12px;">to</span>
+            <input type="date" id="txn-date-to" class="form-control" style="font-size:12px;padding:4px 8px;">
+          </div>
+
+          <select id="txn-filter-type" class="form-control" style="max-width:140px;font-size:13px;">
+            <option value="">All Types</option>
+            <option value="income">Income (+)</option>
+            <option value="expense">Expense (-)</option>
+            <option value="transfer">Transfer (⇄)</option>
+          </select>
+
+          <select id="txn-filter-account" class="form-control" style="max-width:160px;font-size:13px;">
+            <option value="">All Accounts</option>
+            ${accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}
+          </select>
+
+          <select id="txn-sort" class="form-control" style="max-width:160px;font-size:13px;">
+            <option value="date-desc">Latest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="amount-desc">Highest amount</option>
+            <option value="amount-asc">Lowest amount</option>
+            <option value="type-income">Income first</option>
+            <option value="type-expense">Expense first</option>
+            <option value="type-transfer">Transfers first</option>
+          </select>
+
+          <button class="btn btn-ghost btn-sm" id="btn-reset-filters" style="margin-left:auto;">↺ Reset Filters</button>
+        </div>
+      </div>
+
+      <!-- Filter Results Summary Banner -->
+      <div id="txn-filter-summary" style="margin-bottom:var(--sp-3);font-size:var(--fs-xs);color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center;"></div>
+
+      <div class="txn-list" id="txn-list-container"></div>
+    </div>
+
+    <div id="pane-subs" style="display:none;">
+      <div id="subscriptions-container"></div>
+    </div>
   `;
 
+  // Tab switching
+  const tabLedger = $('#tab-btn-ledger');
+  const tabSubs = $('#tab-btn-subs');
+  const paneLedger = $('#pane-ledger');
+  const paneSubs = $('#pane-subs');
+
+  tabLedger.addEventListener('click', () => {
+    currentTab = 'ledger';
+    tabLedger.classList.add('active');
+    tabSubs.classList.remove('active');
+    paneLedger.style.display = 'block';
+    paneSubs.style.display = 'none';
+  });
+
+  tabSubs.addEventListener('click', () => {
+    currentTab = 'subscriptions';
+    tabSubs.classList.add('active');
+    tabLedger.classList.remove('active');
+    paneLedger.style.display = 'none';
+    paneSubs.style.display = 'block';
+    loadSubscriptions();
+  });
+
+  // Calculate Date Ranges
+  function getDateRangeForPreset(preset) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const d = now.getDate();
+
+    const formatDateVal = dt => dt.toISOString().split('T')[0];
+
+    switch (preset) {
+      case 'today': {
+        const todayStr = formatDateVal(now);
+        return { start: todayStr, end: todayStr + 'T23:59:59' };
+      }
+      case 'yesterday': {
+        const yest = new Date(now);
+        yest.setDate(d - 1);
+        const yestStr = formatDateVal(yest);
+        return { start: yestStr, end: yestStr + 'T23:59:59' };
+      }
+      case '7days': {
+        const past = new Date(now);
+        past.setDate(d - 6);
+        return { start: formatDateVal(past), end: formatDateVal(now) + 'T23:59:59' };
+      }
+      case '30days': {
+        const past = new Date(now);
+        past.setDate(d - 29);
+        return { start: formatDateVal(past), end: formatDateVal(now) + 'T23:59:59' };
+      }
+      case 'month': {
+        const start = new Date(y, m, 1);
+        const end = new Date(y, m + 1, 0);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59' };
+      }
+      case 'prev_month': {
+        const start = new Date(y, m - 1, 1);
+        const end = new Date(y, m, 0);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59' };
+      }
+      case 'year': {
+        const start = new Date(y, 0, 1);
+        const end = new Date(y, 11, 31);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59' };
+      }
+      case 'custom': {
+        const from = $('#txn-date-from')?.value;
+        const to = $('#txn-date-to')?.value;
+        return { start: from || undefined, end: to ? to + 'T23:59:59' : undefined };
+      }
+      default:
+        return {};
+    }
+  }
+
+  // Load Transactions with Filters
   async function loadTxns() {
     const type = $('#txn-filter-type').value;
     const accountId = parseInt($('#txn-filter-account').value) || null;
-    const monthVal = $('#txn-filter-month').value;
-    const [y, m] = monthVal.split('-').map(Number);
+    const sortBy = $('#txn-sort').value;
+    const search = $('#txn-search-input').value.trim().toLowerCase();
 
-    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
-    const endMonth = m === 12 ? 1 : m + 1;
-    const endYear = m === 12 ? y + 1 : y;
-    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const { start, end } = getDateRangeForPreset(activePreset);
 
-    const txns = await getTransactions({ type: type || undefined, accountId, startDate, endDate });
+    let allTxns = await getTransactions({
+      type: type || undefined,
+      accountId: accountId || undefined,
+      startDate: start,
+      endDate: end
+    });
+
+    // Apply Free Text Search
+    if (search) {
+      allTxns = allTxns.filter(t => {
+        const desc = (t.description || '').toLowerCase();
+        const notes = (t.notes || '').toLowerCase();
+        const tags = (t.tags || '').toLowerCase();
+        const cat = (catMap[t.categoryId]?.name || '').toLowerCase();
+        const acc = (accMap[t.accountId]?.name || '').toLowerCase();
+        const toAcc = (accMap[t.toAccountId]?.name || '').toLowerCase();
+        const amtStr = String(t.amount);
+        return desc.includes(search) || notes.includes(search) || tags.includes(search) ||
+               cat.includes(search) || acc.includes(search) || toAcc.includes(search) || amtStr.includes(search);
+      });
+    }
+
+    // Apply Sorting
+    allTxns.sort((a, b) => {
+      switch (sortBy) {
+        case 'date-asc':
+          return a.date.localeCompare(b.date);
+        case 'amount-desc':
+          return b.amount - a.amount;
+        case 'amount-asc':
+          return a.amount - b.amount;
+        case 'type-income':
+          return (b.type === 'income' ? 1 : 0) - (a.type === 'income' ? 1 : 0) || b.date.localeCompare(a.date);
+        case 'type-expense':
+          return (b.type === 'expense' ? 1 : 0) - (a.type === 'expense' ? 1 : 0) || b.date.localeCompare(a.date);
+        case 'type-transfer':
+          return (b.type === 'transfer' ? 1 : 0) - (a.type === 'transfer' ? 1 : 0) || b.date.localeCompare(a.date);
+        case 'date-desc':
+        default:
+          return b.date.localeCompare(a.date);
+      }
+    });
+
     const listEl = $('#txn-list-container');
+    const summaryEl = $('#txn-filter-summary');
 
-    if (txns.length === 0) {
-      listEl.innerHTML = `<div class="empty-state"><div class="emoji">📭</div><h3>No transactions found</h3><p>Try adjusting the filters or add a new transaction.</p></div>`;
+    // Summary calculation
+    let totalIn = 0, totalOut = 0;
+    allTxns.forEach(t => {
+      if (t.type === 'income') totalIn += t.amount;
+      else if (t.type === 'expense') totalOut += t.amount;
+    });
+
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <span>Showing <strong>${allTxns.length}</strong> transactions</span>
+        <span>Income: <strong style="color:var(--green)">+${formatCurrency(totalIn)}</strong> &nbsp;|&nbsp; Expense: <strong style="color:var(--red)">-${formatCurrency(totalOut)}</strong> &nbsp;|&nbsp; Net: <strong>${formatCurrency(totalIn - totalOut)}</strong></span>
+      `;
+    }
+
+    if (allTxns.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <div class="emoji">📭</div>
+          <h3>No transactions match your filters</h3>
+          <p>Try clearing filters or search query, or record a new transaction.</p>
+        </div>
+      `;
     } else {
-      listEl.innerHTML = renderTransactionList(txns, catMap, accMap);
+      listEl.innerHTML = renderTransactionList(allTxns, catMap, accMap);
       setupTransactionItemHandlers();
     }
   }
 
+  // Filter Presets Click Handlers
+  $$('.filter-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.filter-preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activePreset = btn.dataset.preset;
+
+      const customWrap = $('#custom-date-wrap');
+      if (activePreset === 'custom') {
+        customWrap.style.display = 'flex';
+        if (!$('#txn-date-from').value) {
+          const now = new Date();
+          $('#txn-date-from').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+          $('#txn-date-to').value = now.toISOString().split('T')[0];
+        }
+      } else {
+        customWrap.style.display = 'none';
+      }
+      loadTxns();
+    });
+  });
+
+  // Filter change listeners
   $('#txn-filter-type').addEventListener('change', loadTxns);
   $('#txn-filter-account').addEventListener('change', loadTxns);
-  $('#txn-filter-month').addEventListener('change', loadTxns);
+  $('#txn-sort').addEventListener('change', loadTxns);
+  $('#txn-date-from')?.addEventListener('change', loadTxns);
+  $('#txn-date-to')?.addEventListener('change', loadTxns);
+
+  // Search input debounced
+  let searchTimer;
+  $('#txn-search-input').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadTxns, 250);
+  });
+
+  // Reset Filters
+  $('#btn-reset-filters').addEventListener('click', () => {
+    $('#txn-search-input').value = '';
+    $('#txn-filter-type').value = '';
+    $('#txn-filter-account').value = '';
+    $('#txn-sort').value = 'date-desc';
+    $$('.filter-preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === 'month'));
+    activePreset = 'month';
+    $('#custom-date-wrap').style.display = 'none';
+    loadTxns();
+  });
+
   $('#add-txn-btn').addEventListener('click', () => showTransactionModal());
 
+  // Subscriptions Section Loader
+  async function loadSubscriptions() {
+    const subContainer = $('#subscriptions-container');
+    if (!subContainer) return;
+
+    const subs = await getSubscriptions();
+    const accounts = await getActiveAccounts();
+    const accMap = {};
+    accounts.forEach(a => accMap[a.id] = a);
+
+    // Compute metrics
+    const activeSubs = subs.filter(s => s.status === 'active');
+    const totalMonthlyCost = activeSubs.reduce((acc, s) => {
+      let multiplier = 1;
+      if (s.billingCycle === 'yearly') multiplier = 1 / 12;
+      else if (s.billingCycle === 'quarterly') multiplier = 1 / 3;
+      else if (s.billingCycle === 'weekly') multiplier = 4.33;
+      return acc + (s.amount * multiplier);
+    }, 0);
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const threeDaysLater = new Date(now);
+    threeDaysLater.setDate(now.getDate() + 3);
+    const threeDaysStr = threeDaysLater.toISOString().split('T')[0];
+
+    const dueSoonCount = activeSubs.filter(s => s.nextDueDate && s.nextDueDate <= threeDaysStr && s.nextDueDate >= todayStr).length;
+    const overdueCount = activeSubs.filter(s => s.nextDueDate && s.nextDueDate < todayStr).length;
+
+    subContainer.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-4);">
+        <div>
+          <h2 style="font-size:var(--fs-lg);font-weight:700;">Subscriptions & Recurring Bills</h2>
+          <p style="font-size:var(--fs-xs);color:var(--text-secondary);">Never miss a renewal or lose money on forgotten subscriptions</p>
+        </div>
+        <button class="btn btn-primary" id="btn-add-subscription">+ Add Subscription</button>
+      </div>
+
+      <!-- Stats Bar -->
+      <div class="stats-grid" style="margin-bottom:var(--sp-4);">
+        <div class="stat-card">
+          <div class="stat-label">Monthly Commitments</div>
+          <div class="stat-value">${formatCurrency(totalMonthlyCost)}</div>
+          <div class="stat-sub">Across ${activeSubs.length} active services</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Subscriptions</div>
+          <div class="stat-value">${activeSubs.length}</div>
+          <div class="stat-sub">${subs.length - activeSubs.length} paused</div>
+        </div>
+        <div class="stat-card ${overdueCount > 0 ? 'expense' : dueSoonCount > 0 ? 'savings' : ''}">
+          <div class="stat-label">Upcoming / Overdue</div>
+          <div class="stat-value" style="color:${overdueCount > 0 ? 'var(--red)' : dueSoonCount > 0 ? 'var(--yellow)' : 'var(--green)'}">
+            ${overdueCount > 0 ? `${overdueCount} Overdue!` : `${dueSoonCount} Due Soon`}
+          </div>
+          <div class="stat-sub">Next 3 days</div>
+        </div>
+      </div>
+
+      <!-- Subscription Cards Grid -->
+      <div class="financial-cards-grid">
+        ${subs.map(sub => {
+          const isOverdue = sub.nextDueDate && sub.nextDueDate < todayStr;
+          const isDueSoon = sub.nextDueDate && sub.nextDueDate <= threeDaysStr && !isOverdue;
+          const statusClass = sub.status !== 'active' ? 'settled' : isOverdue ? 'overdue' : isDueSoon ? 'due-soon' : 'active';
+          const statusLabel = sub.status !== 'active' ? 'Paused' : isOverdue ? 'Overdue' : isDueSoon ? 'Due Soon' : 'Active';
+
+          return `
+            <div class="financial-card">
+              <div class="f-card-header">
+                <div>
+                  <div class="f-card-title">${escapeHtml(sub.name)}</div>
+                  <div class="f-card-subtitle">${escapeHtml(sub.serviceCategory || 'Subscription')} · ${escapeHtml(sub.billingCycle)}</div>
+                </div>
+                <span class="badge-status ${statusClass}">${statusLabel}</span>
+              </div>
+
+              <div class="f-card-amount-block">
+                <div>
+                  <div class="f-card-amount-label">Plan Cost</div>
+                  <div class="f-card-amount-val">${formatCurrency(sub.amount)}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div class="f-card-amount-label">Next Due Date</div>
+                  <div style="font-size:var(--fs-sm);font-weight:600;color:${isOverdue ? 'var(--red)' : isDueSoon ? 'var(--yellow)' : 'var(--text-primary)'}">
+                    ${formatDate(sub.nextDueDate) || 'Not set'}
+                  </div>
+                </div>
+              </div>
+
+              <div class="f-card-meta">
+                <div class="f-card-meta-row">
+                  <span>Payment Account:</span>
+                  <span style="font-weight:600;color:var(--text-primary);">${escapeHtml(accMap[sub.paymentAccountId]?.name || 'Not linked')}</span>
+                </div>
+                <div class="f-card-meta-row">
+                  <span>Auto-Renewal:</span>
+                  <span>${sub.autoRenewal ? '⚡ Auto-debit active' : 'Manual confirmation'}</span>
+                </div>
+                ${sub.notes ? `<div class="f-card-meta-row" style="color:var(--text-secondary);font-style:italic;"><span>Notes:</span><span>${escapeHtml(sub.notes)}</span></div>` : ''}
+              </div>
+
+              <div class="f-card-actions">
+                <button class="btn btn-sm btn-primary mark-sub-paid-btn" data-sub-id="${sub.id}" style="flex:1;">
+                  ✓ Mark Paid
+                </button>
+                <button class="btn btn-sm btn-secondary edit-sub-btn" data-sub-id="${sub.id}">✏️ Edit</button>
+                <button class="btn btn-sm btn-ghost delete-sub-btn" data-sub-id="${sub.id}">🗑️</button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+        ${subs.length === 0 ? `
+          <div class="empty-state" style="grid-column:1/-1;">
+            <div class="emoji">🔄</div>
+            <h3>No subscriptions added yet</h3>
+            <p>Track your Netflix, Spotify, gym membership, WiFi, and software subscriptions in one place.</p>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    // Add Subscription Handler
+    $('#btn-add-subscription')?.addEventListener('click', () => showSubscriptionModal());
+
+    // Mark Paid Handler
+    $$('.mark-sub-paid-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.subId);
+        try {
+          const nextDate = await markSubscriptionPaid(id);
+          showToast(`Subscription payment recorded! Next renewal: ${formatDate(nextDate)}`, 'success');
+          loadSubscriptions();
+        } catch (err) {
+          showToast('Failed to record payment: ' + err.message, 'error');
+        }
+      });
+    });
+
+    // Edit Subscription Handler
+    $$('.edit-sub-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.subId);
+        const sub = await db.subscriptions.get(id);
+        if (sub) showSubscriptionModal(sub);
+      });
+    });
+
+    // Delete Subscription Handler
+    $$('.delete-sub-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.subId);
+        if (confirm('Delete this subscription?')) {
+          await deleteSubscription(id);
+          showToast('Subscription removed.', 'info');
+          loadSubscriptions();
+        }
+      });
+    });
+  }
+
+  // Initial Load
   await loadTxns();
+}
+
+// ── Subscription Modal ────────────────────────────────────────────────
+async function showSubscriptionModal(data = {}) {
+  const accounts = await getActiveAccounts();
+  const isEdit = !!data.id;
+
+  showModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Edit' : 'New'} Subscription</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="subscription-form">
+      <div class="form-group">
+        <label>Service / Subscription Name *</label>
+        <input type="text" id="sub-name" class="form-control" value="${escapeHtml(data.name || '')}" required placeholder="e.g. Netflix, Spotify, Gym, JioFiber">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (₹) *</label>
+          <input type="number" id="sub-amount" class="form-control" step="any" min="0" value="${data.amount || ''}" required placeholder="e.g. 649">
+        </div>
+        <div class="form-group">
+          <label>Billing Cycle</label>
+          <select id="sub-cycle" class="form-control">
+            <option value="monthly" ${data.billingCycle === 'monthly' ? 'selected' : ''}>Monthly</option>
+            <option value="quarterly" ${data.billingCycle === 'quarterly' ? 'selected' : ''}>Quarterly (3 Months)</option>
+            <option value="yearly" ${data.billingCycle === 'yearly' ? 'selected' : ''}>Yearly (Annual)</option>
+            <option value="weekly" ${data.billingCycle === 'weekly' ? 'selected' : ''}>Weekly</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Payment Account</label>
+          <select id="sub-account" class="form-control">
+            <option value="">Select Account</option>
+            ${accounts.map(a => `<option value="${a.id}" ${data.paymentAccountId === a.id ? 'selected' : ''}>${a.icon || ''} ${escapeHtml(a.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Next Due Date *</label>
+          <input type="date" id="sub-date" class="form-control" value="${data.nextDueDate || todayISO()}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" id="sub-category" class="form-control" value="${escapeHtml(data.serviceCategory || 'Entertainment')}" placeholder="e.g. Streaming, Utility, Fitness">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="sub-status" class="form-control">
+            <option value="active" ${data.status !== 'paused' ? 'selected' : ''}>Active</option>
+            <option value="paused" ${data.status === 'paused' ? 'selected' : ''}>Paused</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="sub-auto-renew" ${data.autoRenewal !== 0 ? 'checked' : ''}>
+          Auto-renewal active on card / bank
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="sub-notes" class="form-control" rows="2" placeholder="Plan details, credentials, or reminders">${escapeHtml(data.notes || '')}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Save'} Subscription</button>
+      </div>
+    </form>
+  `);
+
+  $('#subscription-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: $('#sub-name').value.trim(),
+      amount: parseFloat($('#sub-amount').value) || 0,
+      billingCycle: $('#sub-cycle').value,
+      paymentAccountId: parseInt($('#sub-account').value) || null,
+      nextDueDate: $('#sub-date').value,
+      serviceCategory: $('#sub-category').value.trim(),
+      status: $('#sub-status').value,
+      autoRenewal: $('#sub-auto-renew').checked ? 1 : 0,
+      notes: $('#sub-notes').value.trim()
+    };
+
+    try {
+      if (isEdit) {
+        await updateSubscription(data.id, payload);
+        showToast('Subscription updated!', 'success');
+      } else {
+        await createSubscription(payload);
+        showToast('Subscription added!', 'success');
+      }
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
 }
 
 // ── ACCOUNTS VIEW ─────────────────────────────────────────────────────
@@ -820,8 +1361,17 @@ async function renderAccounts(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Accounts</h1>
-      <p>Manage your money locations</p>
+      <h1>Accounts & Liquid Funds</h1>
+      <p>Bank accounts, cash in hand, and digital wallets</p>
+    </div>
+
+    <!-- Sub-navigation Pills -->
+    <div class="subnav-pills">
+      <a href="#/accounts" class="subnav-pill active">💵 Liquid Accounts</a>
+      <a href="#/investments" class="subnav-pill">📈 Investments</a>
+      <a href="#/lending" class="subnav-pill">🤝 Lend & Borrow</a>
+      <a href="#/liabilities" class="subnav-pill">🏛️ Liabilities & Loans</a>
+      <a href="#/insurance" class="subnav-pill">🛡️ Insurance</a>
     </div>
 
     <div class="toolbar">
@@ -1016,15 +1566,27 @@ async function renderInvestments(container) {
   container.innerHTML = `
     <div class="page-header">
       <h1>Investments & Assets</h1>
-      <p>Track your wealth growth</p>
+      <p>Track your portfolio, capital growth and complete balance sheet</p>
+    </div>
+
+    <!-- Sub-navigation Pills -->
+    <div class="subnav-pills">
+      <a href="#/accounts" class="subnav-pill">💵 Liquid Accounts</a>
+      <a href="#/investments" class="subnav-pill active">📈 Investments</a>
+      <a href="#/lending" class="subnav-pill">🤝 Lend & Borrow</a>
+      <a href="#/liabilities" class="subnav-pill">🏛️ Liabilities & Loans</a>
+      <a href="#/insurance" class="subnav-pill">🛡️ Insurance</a>
     </div>
 
     <div class="networth-hero">
-      <div class="networth-label">Estimated Net Worth</div>
+      <div class="networth-label">Total Real Net Worth</div>
       <div class="networth-value">${formatCurrency(netWorthData.netWorth)}</div>
-      <div style="margin-top:var(--sp-3);display:flex;justify-content:center;gap:var(--sp-8);">
+      <div style="margin-top:var(--sp-3);display:flex;justify-content:center;flex-wrap:wrap;gap:var(--sp-4);">
         <div><span style="color:var(--text-secondary);font-size:var(--fs-xs)">Liquid</span><br><strong>${formatCurrency(netWorthData.totalLiquid)}</strong></div>
         <div><span style="color:var(--text-secondary);font-size:var(--fs-xs)">Investments</span><br><strong>${formatCurrency(netWorthData.totalInvestments)}</strong></div>
+        <div><span style="color:var(--text-secondary);font-size:var(--fs-xs)">Lent (Receivable)</span><br><strong style="color:var(--green)">+${formatCurrency(netWorthData.totalLentReceivable || 0)}</strong></div>
+        <div><span style="color:var(--text-secondary);font-size:var(--fs-xs)">Borrowed (Payable)</span><br><strong style="color:var(--red)">-${formatCurrency(netWorthData.totalBorrowedPayable || 0)}</strong></div>
+        <div><span style="color:var(--text-secondary);font-size:var(--fs-xs)">Loans / Debt</span><br><strong style="color:var(--red)">-${formatCurrency(netWorthData.totalLiabilities || 0)}</strong></div>
       </div>
     </div>
 
@@ -1254,231 +1816,1420 @@ async function renderReports(container) {
   reportCharts.forEach(c => c.destroy());
   reportCharts = [];
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-
-  const report = await getMonthlyReport(year, month);
-  const prevReport = await getPreviousMonthReport(year, month);
+  let activePreset = 'month'; // 'month', 'prev_month', '30days', '7days', 'quarter', 'year', 'custom'
   const accounts = await getActiveAccounts();
-  const balances = await getAllBalances();
   const accMap = {};
   accounts.forEach(a => accMap[a.id] = a);
 
-  const expenseChange = prevReport.totalExpense > 0
-    ? ((report.totalExpense - prevReport.totalExpense) / prevReport.totalExpense * 100).toFixed(0)
-    : null;
-  const incomeChange = prevReport.totalIncome > 0
-    ? ((report.totalIncome - prevReport.totalIncome) / prevReport.totalIncome * 100).toFixed(0)
-    : null;
+  function getReportRange(preset) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const d = now.getDate();
+    const formatDateVal = dt => dt.toISOString().split('T')[0];
 
-  // Sort categories by amount
-  const sortedExpCats = Object.entries(report.expenseByCategory).sort((a, b) => b[1] - a[1]);
-  const sortedIncCats = Object.entries(report.incomeByCategory).sort((a, b) => b[1] - a[1]);
+    switch (preset) {
+      case '7days': {
+        const past = new Date(now);
+        past.setDate(d - 6);
+        return { start: formatDateVal(past), end: formatDateVal(now) + 'T23:59:59', label: 'Last 7 Days' };
+      }
+      case '30days': {
+        const past = new Date(now);
+        past.setDate(d - 29);
+        return { start: formatDateVal(past), end: formatDateVal(now) + 'T23:59:59', label: 'Last 30 Days' };
+      }
+      case 'month': {
+        const start = new Date(y, m, 1);
+        const end = new Date(y, m + 1, 0);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59', label: `${getMonthName(m + 1)} ${y}` };
+      }
+      case 'prev_month': {
+        const start = new Date(y, m - 1, 1);
+        const end = new Date(y, m, 0);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59', label: `${getMonthName(m === 0 ? 12 : m)} ${m === 0 ? y - 1 : y}` };
+      }
+      case 'quarter': {
+        const qStartMonth = Math.floor(m / 3) * 3;
+        const start = new Date(y, qStartMonth, 1);
+        const end = new Date(y, qStartMonth + 3, 0);
+        const qNum = Math.floor(m / 3) + 1;
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59', label: `Q${qNum} ${y}` };
+      }
+      case 'year': {
+        const start = new Date(y, 0, 1);
+        const end = new Date(y, 11, 31);
+        return { start: formatDateVal(start), end: formatDateVal(end) + 'T23:59:59', label: `Year ${y}` };
+      }
+      case 'custom': {
+        const from = $('#report-from')?.value;
+        const to = $('#report-to')?.value;
+        return { start: from, end: to ? to + 'T23:59:59' : undefined, label: `${from || 'Start'} to ${to || 'End'}` };
+      }
+      default:
+        return { start: undefined, end: undefined, label: 'All Time' };
+    }
+  }
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Reports</h1>
-      <p>${getMonthName(month)} ${year}</p>
+      <h1>Reports & Statements</h1>
+      <p id="report-period-heading">Detailed financial analytics & cashflow breakdown</p>
     </div>
 
-    <div class="toolbar">
-      <input type="month" id="report-month" class="form-control" value="${year}-${String(month).padStart(2, '0')}">
-      <button class="btn btn-secondary" id="export-csv-btn">📥 Export CSV</button>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card income">
-        <div class="stat-label">Total Income</div>
-        <div class="stat-value">${formatCurrency(report.totalIncome)}</div>
-        ${incomeChange !== null ? `<div class="comparison ${Number(incomeChange) > 0 ? 'up' : 'down'}" style="color: ${Number(incomeChange) > 0 ? 'var(--green)' : 'var(--red)'}">${incomeChange > 0 ? '↑' : '↓'} ${Math.abs(incomeChange)}% vs last month</div>` : ''}
-      </div>
-      <div class="stat-card expense">
-        <div class="stat-label">Total Expenses</div>
-        <div class="stat-value">${formatCurrency(report.totalExpense)}</div>
-        ${expenseChange !== null ? `<div class="comparison ${Number(expenseChange) > 0 ? 'up' : 'down'}">${expenseChange > 0 ? '↑' : '↓'} ${Math.abs(expenseChange)}% vs last month</div>` : ''}
-      </div>
-      <div class="stat-card ${report.netCashFlow >= 0 ? 'savings' : 'expense'}">
-        <div class="stat-label">Net Cash Flow</div>
-        <div class="stat-value">${report.netCashFlow >= 0 ? '+' : ''}${formatCurrency(report.netCashFlow)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Daily Avg Spending</div>
-        <div class="stat-value">${formatCurrency(report.dailyAvgSpending)}</div>
-        <div class="stat-sub">${report.daysPassed} days tracked</div>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);">
-      <div class="chart-container">
-        <h3>Expenses by Category</h3>
-        <canvas id="expense-pie-chart"></canvas>
-      </div>
-      <div class="chart-container">
-        <h3>Daily Spending</h3>
-        <canvas id="daily-bar-chart"></canvas>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header"><h2>Expense Breakdown</h2></div>
-      <div class="breakdown-list">
-        ${sortedExpCats.map(([name, amount], i) => {
-          const pct = report.totalExpense > 0 ? (amount / report.totalExpense * 100) : 0;
-          return `
-            <div class="breakdown-item">
-              <div class="breakdown-name">${escapeHtml(name)}</div>
-              <div class="breakdown-bar-bg"><div class="breakdown-bar" style="width:${pct}%;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div></div>
-              <div class="breakdown-value">${formatCurrency(amount)}</div>
-            </div>
-          `;
-        }).join('')}
-        ${sortedExpCats.length === 0 ? '<p style="color:var(--text-muted);font-size:var(--fs-sm)">No expenses this month</p>' : ''}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header"><h2>Income Breakdown</h2></div>
-      <div class="breakdown-list">
-        ${sortedIncCats.map(([name, amount], i) => {
-          const pct = report.totalIncome > 0 ? (amount / report.totalIncome * 100) : 0;
-          return `
-            <div class="breakdown-item">
-              <div class="breakdown-name">${escapeHtml(name)}</div>
-              <div class="breakdown-bar-bg"><div class="breakdown-bar" style="width:${pct}%;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div></div>
-              <div class="breakdown-value">${formatCurrency(amount)}</div>
-            </div>
-          `;
-        }).join('')}
-        ${sortedIncCats.length === 0 ? '<p style="color:var(--text-muted);font-size:var(--fs-sm)">No income this month</p>' : ''}
-      </div>
-    </div>
-
-    ${report.largestExpense ? `
-      <div class="section">
-        <div class="section-header"><h2>Largest Expense</h2></div>
-        <div class="stat-card expense" style="max-width:400px">
-          <div class="stat-value">${formatCurrency(report.largestExpense.amount)}</div>
-          <div class="stat-sub">${escapeHtml(report.largestExpense.description || 'No description')} · ${formatDate(report.largestExpense.date)}</div>
+    <!-- Duration Preset Bar -->
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-4);margin-bottom:var(--sp-5);">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-3);margin-bottom:var(--sp-3);">
+        <div class="filter-presets" style="margin:0;">
+          <button class="filter-preset-btn active" data-rpreset="month">This Month</button>
+          <button class="filter-preset-btn" data-rpreset="prev_month">Previous Month</button>
+          <button class="filter-preset-btn" data-rpreset="30days">Last 30 Days</button>
+          <button class="filter-preset-btn" data-rpreset="7days">Last 7 Days</button>
+          <button class="filter-preset-btn" data-rpreset="quarter">This Quarter</button>
+          <button class="filter-preset-btn" data-rpreset="year">This Year</button>
+          <button class="filter-preset-btn" data-rpreset="custom">Custom Range</button>
         </div>
+        <button class="btn btn-secondary" id="export-csv-btn">📥 Export Excel CSV</button>
       </div>
-    ` : ''}
 
-    <div class="section">
-      <div class="section-header"><h2>Spending by Account</h2></div>
-      <div class="breakdown-list">
-        ${Object.entries(report.expenseByAccount).sort((a, b) => b[1] - a[1]).map(([accId, amount], i) => {
-          const acc = accMap[parseInt(accId)];
-          const pct = report.totalExpense > 0 ? (amount / report.totalExpense * 100) : 0;
-          return `
-            <div class="breakdown-item">
-              <div class="breakdown-name">${acc ? escapeHtml(acc.name) : 'Unknown'}</div>
-              <div class="breakdown-bar-bg"><div class="breakdown-bar" style="width:${pct}%;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div></div>
-              <div class="breakdown-value">${formatCurrency(amount)}</div>
-            </div>
-          `;
-        }).join('')}
+      <div id="report-custom-wrap" style="display:none;gap:var(--sp-2);align-items:center;margin-top:var(--sp-2);">
+        <label style="font-size:12px;color:var(--text-secondary);">From:</label>
+        <input type="date" id="report-from" class="form-control" style="font-size:12px;max-width:160px;">
+        <label style="font-size:12px;color:var(--text-secondary);">To:</label>
+        <input type="date" id="report-to" class="form-control" style="font-size:12px;max-width:160px;">
+        <button class="btn btn-sm btn-primary" id="report-custom-apply">Apply</button>
       </div>
     </div>
+
+    <div id="report-content-body"></div>
   `;
 
-  // ── Charts ──
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
-  const textColor = isDark ? '#9090b0' : '#555577';
+  async function loadReportData() {
+    const { start, end, label } = getReportRange(activePreset);
+    $('#report-period-heading').textContent = `Period: ${label}`;
 
-  Chart.defaults.color = textColor;
-  Chart.defaults.font.family = 'Inter';
+    const report = await getDateRangeReport(start, end);
 
-  // Expense Pie
-  if (sortedExpCats.length > 0) {
-    const ctx1 = document.getElementById('expense-pie-chart');
-    if (ctx1) {
-      const chart1 = new Chart(ctx1, {
+    // Destroy prior charts
+    reportCharts.forEach(c => c.destroy());
+    reportCharts = [];
+
+    const sortedExpCats = Object.entries(report.expenseByCategory).sort((a, b) => b[1] - a[1]);
+    const sortedIncCats = Object.entries(report.incomeByCategory).sort((a, b) => b[1] - a[1]);
+
+    const contentEl = $('#report-content-body');
+    contentEl.innerHTML = `
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-card income">
+          <div class="stat-label">Total Income</div>
+          <div class="stat-value">${formatCurrency(report.totalIncome)}</div>
+          <div class="stat-sub">${Object.keys(report.incomeByCategory).length} income sources</div>
+        </div>
+        <div class="stat-card expense">
+          <div class="stat-label">Total Expenses</div>
+          <div class="stat-value">${formatCurrency(report.totalExpense)}</div>
+          <div class="stat-sub">${Object.keys(report.expenseByCategory).length} expense categories</div>
+        </div>
+        <div class="stat-card ${report.netCashFlow >= 0 ? 'savings' : 'expense'}">
+          <div class="stat-label">Net Savings</div>
+          <div class="stat-value">${report.netCashFlow >= 0 ? '+' : ''}${formatCurrency(report.netCashFlow)}</div>
+          <div class="stat-sub">Savings Rate: ${report.savingsRate.toFixed(1)}%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Daily Avg Spending</div>
+          <div class="stat-value">${formatCurrency(report.dailyAvgSpending)}</div>
+          <div class="stat-sub">${report.days} days in period</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:var(--sp-4);margin-top:var(--sp-5);">
+        <div class="chart-container">
+          <h3>Expenses by Category</h3>
+          <canvas id="expense-pie-chart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3>Daily Spending Trend</h3>
+          <canvas id="daily-bar-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Expense Breakdown -->
+      <div class="section" style="margin-top:var(--sp-6);">
+        <div class="section-header">
+          <h2>Expense Breakdown by Category</h2>
+          <span style="font-size:var(--fs-xs);color:var(--text-secondary);">${sortedExpCats.length} Categories</span>
+        </div>
+        <div class="breakdown-list">
+          ${sortedExpCats.map(([name, amount], i) => {
+            const pct = report.totalExpense > 0 ? (amount / report.totalExpense * 100) : 0;
+            return `
+              <div class="breakdown-item">
+                <div class="breakdown-name">${escapeHtml(name)} (${pct.toFixed(1)}%)</div>
+                <div class="breakdown-bar-bg">
+                  <div class="breakdown-bar" style="width:${pct}%;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div>
+                </div>
+                <div class="breakdown-value">${formatCurrency(amount)}</div>
+              </div>
+            `;
+          }).join('')}
+          ${sortedExpCats.length === 0 ? '<p style="color:var(--text-muted);font-size:var(--fs-sm)">No expense records in this period.</p>' : ''}
+        </div>
+      </div>
+
+      <!-- Income Breakdown -->
+      <div class="section">
+        <div class="section-header">
+          <h2>Income Breakdown by Source</h2>
+          <span style="font-size:var(--fs-xs);color:var(--text-secondary);">${sortedIncCats.length} Sources</span>
+        </div>
+        <div class="breakdown-list">
+          ${sortedIncCats.map(([name, amount], i) => {
+            const pct = report.totalIncome > 0 ? (amount / report.totalIncome * 100) : 0;
+            return `
+              <div class="breakdown-item">
+                <div class="breakdown-name">${escapeHtml(name)} (${pct.toFixed(1)}%)</div>
+                <div class="breakdown-bar-bg">
+                  <div class="breakdown-bar" style="width:${pct}%;background:${CHART_COLORS[(i + 4) % CHART_COLORS.length]}"></div>
+                </div>
+                <div class="breakdown-value" style="color:var(--green)">+${formatCurrency(amount)}</div>
+              </div>
+            `;
+          }).join('')}
+          ${sortedIncCats.length === 0 ? '<p style="color:var(--text-muted);font-size:var(--fs-sm)">No income records in this period.</p>' : ''}
+        </div>
+      </div>
+
+      <!-- Account Cashflow Movements -->
+      <div class="section">
+        <div class="section-header">
+          <h2>Account-wise Cashflow Movement</h2>
+        </div>
+        <div class="breakdown-list">
+          ${Object.entries(report.accountMovements).map(([accName, mov]) => `
+            <div class="breakdown-item">
+              <div class="breakdown-name" style="font-weight:600;">${escapeHtml(accName)}</div>
+              <div style="font-size:var(--fs-xs);color:var(--text-secondary);">
+                In: <span style="color:var(--green)">+${formatCurrency(mov.in)}</span> &nbsp;|&nbsp;
+                Out: <span style="color:var(--red)">-${formatCurrency(mov.out)}</span>
+              </div>
+              <div class="breakdown-value ${mov.net >= 0 ? 'positive' : 'negative'}">
+                Net: ${mov.net >= 0 ? '+' : ''}${formatCurrency(mov.net)}
+              </div>
+            </div>
+          `).join('')}
+          ${Object.keys(report.accountMovements).length === 0 ? '<p style="color:var(--text-muted);font-size:var(--fs-sm)">No account movements in this period.</p>' : ''}
+        </div>
+      </div>
+    `;
+
+    // Render Pie Chart
+    const pieCanvas = $('#expense-pie-chart');
+    if (pieCanvas && sortedExpCats.length > 0) {
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+      const textColor = isDark ? '#94a3b8' : '#64748b';
+
+      const chart1 = new Chart(pieCanvas, {
         type: 'doughnut',
         data: {
           labels: sortedExpCats.map(([n]) => n),
           datasets: [{
-            data: sortedExpCats.map(([, v]) => v),
-            backgroundColor: CHART_COLORS.slice(0, sortedExpCats.length),
-            borderWidth: 0,
-            hoverBorderWidth: 2,
-            hoverBorderColor: isDark ? '#fff' : '#000',
+            data: sortedExpCats.map(([, a]) => a),
+            backgroundColor: sortedExpCats.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+            borderWidth: 2,
+            borderColor: isDark ? '#1a1a2e' : '#ffffff',
           }],
         },
         options: {
           responsive: true,
           plugins: {
-            legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12 } },
+            legend: {
+              position: 'bottom',
+              labels: { color: textColor, boxWidth: 12, padding: 10, font: { size: 11 } },
+            },
           },
-          cutout: '65%',
         },
       });
       reportCharts.push(chart1);
     }
-  }
 
-  // Daily spending bar chart
-  const dailyData = report.dailyExpenses;
-  const daysInMonth = report.daysInMonth;
-  const labels = [];
-  const values = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    labels.push(d);
-    values.push(dailyData[key] || 0);
-  }
+    // Render Daily Bar Chart
+    const barCanvas = $('#daily-bar-chart');
+    if (barCanvas) {
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+      const textColor = isDark ? '#94a3b8' : '#64748b';
+      const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
-  const ctx2 = document.getElementById('daily-bar-chart');
-  if (ctx2) {
-    const chart2 = new Chart(ctx2, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Spending',
-          data: values,
-          backgroundColor: CHART_COLORS[0] + '80',
-          borderColor: CHART_COLORS[0],
-          borderWidth: 1,
-          borderRadius: 3,
-        }],
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
-          y: { grid: { color: gridColor }, ticks: { callback: v => '₹' + v } },
+      const days = Object.keys(report.dailyExpenses).sort();
+      const values = days.map(d => report.dailyExpenses[d]);
+      const labels = days.map(d => d.slice(5));
+
+      const chart2 = new Chart(barCanvas, {
+        type: 'bar',
+        data: {
+          labels: labels.length ? labels : ['No Data'],
+          datasets: [{
+            label: 'Daily Outflow',
+            data: values.length ? values : [0],
+            backgroundColor: CHART_COLORS[0] + 'aa',
+            borderColor: CHART_COLORS[0],
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
         },
-      },
-    });
-    reportCharts.push(chart2);
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, maxTicksLimit: 10 } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, callback: v => '₹' + v } },
+          },
+        },
+      });
+      reportCharts.push(chart2);
+    }
   }
 
-  // Month change handler
-  $('#report-month').addEventListener('change', async (e) => {
-    const [y, m] = e.target.value.split('-').map(Number);
-    reportCharts.forEach(c => c.destroy());
-    reportCharts = [];
+  // Duration Preset Handlers
+  $$('[data-rpreset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('[data-rpreset]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activePreset = btn.dataset.rpreset;
 
-    const newReport = await getMonthlyReport(y, m);
-    // Re-render with new data (simplified - just re-call renderReports)
-    await renderReports(container);
+      const customWrap = $('#report-custom-wrap');
+      if (activePreset === 'custom') {
+        customWrap.style.display = 'flex';
+        if (!$('#report-from').value) {
+          const now = new Date();
+          $('#report-from').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+          $('#report-to').value = now.toISOString().split('T')[0];
+        }
+      } else {
+        customWrap.style.display = 'none';
+        loadReportData();
+      }
+    });
   });
 
+  $('#report-custom-apply')?.addEventListener('click', loadReportData);
+
   // CSV export
-  $('#export-csv-btn').addEventListener('click', async () => {
-    const csv = await exportToCSV();
-    const blob = new Blob([csv], { type: 'text/csv' });
+  $('#export-csv-btn')?.addEventListener('click', async () => {
+    const { start, end, label } = getReportRange(activePreset);
+    const csv = await exportToCSV({ startDate: start, endDate: end });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nick-wealth-transactions-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `Wealthbook-Report-${label.replace(/[^a-zA-Z0-9]/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('CSV exported!', 'success');
+    showToast('Excel CSV Report exported successfully!', 'success');
   });
+
+  await loadReportData();
+}
+
+// ── LENDING & BORROWING VIEW ──────────────────────────────────────────
+
+async function renderLending(container) {
+  const summary = await getLendBorrowSummary();
+  const allEntries = await getLendBorrowList();
+  const accounts = await getActiveAccounts();
+  const accMap = {};
+  accounts.forEach(a => accMap[a.id] = a);
+
+  let currentTab = 'lent'; // 'lent' or 'borrowed'
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1>Lending & Borrowing</h1>
+      <p>Track money you have given to others and money you owe</p>
+    </div>
+
+    <!-- Sub-navigation Pills -->
+    <div class="subnav-pills">
+      <a href="#/accounts" class="subnav-pill">💵 Liquid Accounts</a>
+      <a href="#/investments" class="subnav-pill">📈 Investments</a>
+      <a href="#/lending" class="subnav-pill active">🤝 Lend & Borrow</a>
+      <a href="#/liabilities" class="subnav-pill">🏛️ Liabilities & Loans</a>
+      <a href="#/insurance" class="subnav-pill">🛡️ Insurance</a>
+    </div>
+
+    <!-- Summary KPI Cards -->
+    <div class="stats-grid" style="margin-bottom:var(--sp-5);">
+      <div class="stat-card income">
+        <div class="stat-label">Money Lent (Receivable)</div>
+        <div class="stat-value" style="color:var(--green)">${formatCurrency(summary.outstandingLent)}</div>
+        <div class="stat-sub">Recovered ${formatCurrency(summary.totalRecovered)} of ${formatCurrency(summary.totalLent)}</div>
+      </div>
+      <div class="stat-card expense">
+        <div class="stat-label">Money Borrowed (Payable)</div>
+        <div class="stat-value" style="color:var(--red)">${formatCurrency(summary.outstandingBorrowed)}</div>
+        <div class="stat-sub">Repaid ${formatCurrency(summary.totalRepaid)} of ${formatCurrency(summary.totalBorrowed)}</div>
+      </div>
+      <div class="stat-card ${summary.netPosition >= 0 ? 'savings' : 'expense'}">
+        <div class="stat-label">Net Lending Position</div>
+        <div class="stat-value">${summary.netPosition >= 0 ? '+' : ''}${formatCurrency(summary.netPosition)}</div>
+        <div class="stat-sub">${summary.netPosition >= 0 ? 'You are a net lender' : 'You are a net borrower'}</div>
+      </div>
+    </div>
+
+    <!-- Top View Tabs -->
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-3);margin-bottom:var(--sp-4);">
+      <div class="view-tabs" style="margin:0;border:none;padding:0;">
+        <button class="view-tab active" id="tab-lend-lent">🤝 Money Lent (I Gave)</button>
+        <button class="view-tab" id="tab-lend-borrowed">📥 Money Borrowed (I Took)</button>
+      </div>
+      <button class="btn btn-primary" id="btn-add-lend-entry">+ Record Entry</button>
+    </div>
+
+    <!-- Cards Container -->
+    <div id="lend-cards-container" class="financial-cards-grid"></div>
+  `;
+
+  function renderCards() {
+    const list = allEntries.filter(e => e.type === currentTab);
+    const containerEl = $('#lend-cards-container');
+
+    if (list.length === 0) {
+      containerEl.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1;">
+          <div class="emoji">${currentTab === 'lent' ? '🤝' : '📥'}</div>
+          <h3>No ${currentTab === 'lent' ? 'money lent' : 'money borrowed'} records</h3>
+          <p>Click "+ Record Entry" to log loans with friends, family, or institutions with full partial repayment tracking.</p>
+        </div>
+      `;
+      return;
+    }
+
+    containerEl.innerHTML = list.map(entry => {
+      const pct = entry.amount > 0 ? Math.min(100, Math.round((entry.paidAmount / entry.amount) * 100)) : 0;
+      const isSettled = entry.status === 'settled' || entry.outstandingAmount <= 0;
+      const statusClass = isSettled ? 'settled' : entry.status === 'partial' ? 'partial' : 'active';
+      const statusLabel = isSettled ? 'Settled' : entry.status === 'partial' ? 'Partial' : 'Active';
+
+      return `
+        <div class="financial-card">
+          <div class="f-card-header">
+            <div>
+              <div class="f-card-title">${escapeHtml(entry.personName)}</div>
+              <div class="f-card-subtitle">${entry.contactNumber ? escapeHtml(entry.contactNumber) + ' · ' : ''}${formatDate(entry.date)}</div>
+            </div>
+            <span class="badge-status ${statusClass}">${statusLabel}</span>
+          </div>
+
+          <div class="f-card-amount-block">
+            <div>
+              <div class="f-card-amount-label">Outstanding Balance</div>
+              <div class="f-card-amount-val" style="color:${currentTab === 'lent' ? 'var(--green)' : 'var(--red)'}">
+                ${formatCurrency(entry.outstandingAmount)}
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <div class="f-card-amount-label">Initial Amount</div>
+              <div style="font-size:var(--fs-sm);font-weight:700;color:var(--text-secondary)">
+                ${formatCurrency(entry.amount)}
+              </div>
+            </div>
+          </div>
+
+          <!-- Repayment Progress -->
+          <div class="progress-track">
+            <div class="progress-fill ${pct === 100 ? 'green' : 'orange'}" style="width:${pct}%"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:var(--sp-2);">
+            <span>${currentTab === 'lent' ? 'Recovered' : 'Repaid'}: ${formatCurrency(entry.paidAmount)} (${pct}%)</span>
+            <span>${entry.expectedDate ? 'Due: ' + formatDate(entry.expectedDate) : ''}</span>
+          </div>
+
+          <div class="f-card-meta">
+            <div class="f-card-meta-row">
+              <span>Account:</span>
+              <span style="font-weight:600;color:var(--text-primary);">${escapeHtml(accMap[entry.accountId]?.name || 'Not linked')}</span>
+            </div>
+            ${entry.purpose ? `<div class="f-card-meta-row"><span>Purpose:</span><span>${escapeHtml(entry.purpose)}</span></div>` : ''}
+            ${entry.notes ? `<div class="f-card-meta-row" style="font-style:italic;"><span>Notes:</span><span>${escapeHtml(entry.notes)}</span></div>` : ''}
+          </div>
+
+          <div class="f-card-actions">
+            ${!isSettled ? `
+              <button class="btn btn-sm btn-primary record-repayment-btn" data-lend-id="${entry.id}" style="flex:1;">
+                + Add Repayment
+              </button>
+            ` : '<div style="flex:1;font-size:12px;color:var(--green);font-weight:600;display:flex;align-items:center;">✓ Fully Settled</div>'}
+            <button class="btn btn-sm btn-secondary view-lend-history-btn" data-lend-id="${entry.id}">📜 History</button>
+            <button class="btn btn-sm btn-ghost delete-lend-btn" data-lend-id="${entry.id}">🗑️</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach Handlers
+    $$('.record-repayment-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.lendId);
+        const entry = allEntries.find(e => e.id === id);
+        if (entry) showLendRepaymentModal(entry);
+      });
+    });
+
+    $$('.view-lend-history-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.lendId);
+        const entry = allEntries.find(e => e.id === id);
+        if (entry) showLendHistoryModal(entry);
+      });
+    });
+
+    $$('.delete-lend-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.lendId);
+        if (confirm('Delete this lending/borrowing record?')) {
+          await db.lendBorrow.delete(id);
+          await db.lendBorrowRepayments.where('lendBorrowId').equals(id).delete();
+          showToast('Record deleted.', 'info');
+          handleRoute();
+        }
+      });
+    });
+  }
+
+  // Tab switching
+  const tabLent = $('#tab-lend-lent');
+  const tabBorrowed = $('#tab-lend-borrowed');
+
+  tabLent.addEventListener('click', () => {
+    currentTab = 'lent';
+    tabLent.classList.add('active');
+    tabBorrowed.classList.remove('active');
+    renderCards();
+  });
+
+  tabBorrowed.addEventListener('click', () => {
+    currentTab = 'borrowed';
+    tabBorrowed.classList.add('active');
+    tabLent.classList.remove('active');
+    renderCards();
+  });
+
+  $('#btn-add-lend-entry').addEventListener('click', () => showLendBorrowModal(currentTab));
+
+  renderCards();
+}
+
+// ── Lending / Borrowing Modals ────────────────────────────────────────
+async function showLendBorrowModal(defaultType = 'lent') {
+  const accounts = await getActiveAccounts();
+
+  showModal(`
+    <div class="modal-header">
+      <h3>Record ${defaultType === 'lent' ? 'Money Lent (Given)' : 'Money Borrowed (Taken)'}</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="lend-borrow-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type *</label>
+          <select id="lb-type" class="form-control">
+            <option value="lent" ${defaultType === 'lent' ? 'selected' : ''}>Money Lent (I Gave Money)</option>
+            <option value="borrowed" ${defaultType === 'borrowed' ? 'selected' : ''}>Money Borrowed (I Took Money)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Person / Institution Name *</label>
+          <input type="text" id="lb-name" class="form-control" required placeholder="e.g. Rahul Sharma, Uncle, SBI">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (₹) *</label>
+          <input type="number" id="lb-amount" class="form-control" step="any" min="1" required placeholder="e.g. 5000">
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="lb-date" class="form-control" value="${todayISO()}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Payment / Receiving Account *</label>
+          <select id="lb-account" class="form-control" required>
+            <option value="">Select Account</option>
+            ${accounts.map(a => `<option value="${a.id}">${a.icon || ''} ${escapeHtml(a.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Expected Repayment Date</label>
+          <input type="date" id="lb-expected" class="form-control">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Contact Phone (Optional)</label>
+          <input type="tel" id="lb-contact" class="form-control" placeholder="+91 98765 43210">
+        </div>
+        <div class="form-group">
+          <label>Purpose / Description</label>
+          <input type="text" id="lb-purpose" class="form-control" placeholder="e.g. Emergency, Event, Advance">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="lb-notes" class="form-control" rows="2" placeholder="Agreements, terms, or reference details"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Ledger Entry</button>
+      </div>
+    </form>
+  `);
+
+  $('#lend-borrow-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      type: $('#lb-type').value,
+      personName: $('#lb-name').value.trim(),
+      amount: parseFloat($('#lb-amount').value) || 0,
+      date: $('#lb-date').value,
+      accountId: parseInt($('#lb-account').value) || null,
+      expectedDate: $('#lb-expected').value,
+      contactNumber: $('#lb-contact').value.trim(),
+      purpose: $('#lb-purpose').value.trim(),
+      notes: $('#lb-notes').value.trim()
+    };
+
+    try {
+      await createLendBorrow(payload);
+      showToast('Record saved and account balance updated!', 'success');
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
+}
+
+async function showLendRepaymentModal(entry) {
+  const accounts = await getActiveAccounts();
+
+  showModal(`
+    <div class="modal-header">
+      <h3>Record Repayment — ${escapeHtml(entry.personName)}</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="lend-repay-form">
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-3);margin-bottom:var(--sp-4);">
+        <div style="display:flex;justify-content:space-between;font-size:12px;">
+          <span>Initial: <strong>${formatCurrency(entry.amount)}</strong></span>
+          <span>Already Paid: <strong>${formatCurrency(entry.paidAmount)}</strong></span>
+        </div>
+        <div style="margin-top:4px;font-size:13px;font-weight:700;color:var(--text-primary)">
+          Current Outstanding: ${formatCurrency(entry.outstandingAmount)}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Repayment Amount (₹) *</label>
+          <input type="number" id="lr-amount" class="form-control" step="any" min="1" max="${entry.outstandingAmount}" value="${entry.outstandingAmount}" required>
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="lr-date" class="form-control" value="${todayISO()}" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>${entry.type === 'lent' ? 'Received Into Account' : 'Paid From Account'} *</label>
+        <select id="lr-account" class="form-control" required>
+          ${accounts.map(a => `<option value="${a.id}" ${entry.accountId === a.id ? 'selected' : ''}>${a.icon || ''} ${escapeHtml(a.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <input type="text" id="lr-notes" class="form-control" placeholder="Installment details, receipt, or mode">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Record Repayment</button>
+      </div>
+    </form>
+  `);
+
+  $('#lend-repay-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const amount = parseFloat($('#lr-amount').value) || 0;
+    const date = $('#lr-date').value;
+    const accountId = parseInt($('#lr-account').value) || null;
+    const notes = $('#lr-notes').value.trim();
+
+    try {
+      await recordLendBorrowRepayment(entry.id, { amount, date, accountId, notes });
+      showToast(`Repayment of ${formatCurrency(amount)} recorded!`, 'success');
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
+}
+
+async function showLendHistoryModal(entry) {
+  const repayments = await getLendBorrowRepayments(entry.id);
+  const accounts = await getActiveAccounts();
+  const accMap = {};
+  accounts.forEach(a => accMap[a.id] = a);
+
+  showModal(`
+    <div class="modal-header">
+      <h3>Repayment History — ${escapeHtml(entry.personName)}</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <div style="margin-bottom:var(--sp-4);">
+      <div style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;">
+        <span>Original: ${formatCurrency(entry.amount)} (${formatDate(entry.date)})</span>
+        <span>Balance: <strong>${formatCurrency(entry.outstandingAmount)}</strong></span>
+      </div>
+    </div>
+    <div style="max-height:300px;overflow-y:auto;">
+      ${repayments.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-2) 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <div>
+            <div style="font-weight:600;">${formatCurrency(r.amount)}</div>
+            <div style="font-size:11px;color:var(--text-secondary);">${formatDate(r.date)} · ${escapeHtml(accMap[r.accountId]?.name || 'Account')}</div>
+            ${r.notes ? `<div style="font-size:11px;color:var(--text-secondary);font-style:italic;">${escapeHtml(r.notes)}</div>` : ''}
+          </div>
+          <span style="color:var(--green);font-size:11px;font-weight:700;">✓ Received</span>
+        </div>
+      `).join('')}
+      ${repayments.length === 0 ? '<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:var(--sp-4);">No repayments recorded yet.</p>' : ''}
+    </div>
+    <div class="modal-actions" style="margin-top:var(--sp-4);">
+      <button type="button" class="btn btn-secondary modal-cancel">Close</button>
+    </div>
+  `);
+}
+
+// ── LIABILITIES & LOANS VIEW ──────────────────────────────────────────
+
+async function renderLiabilities(container) {
+  const loans = await getLiabilities();
+  const accounts = await getActiveAccounts();
+  const accMap = {};
+  accounts.forEach(a => accMap[a.id] = a);
+
+  const totalOutstanding = loans.reduce((acc, l) => acc + (l.currentOutstanding || 0), 0);
+  const totalEmi = loans.reduce((acc, l) => acc + (l.monthlyEmi || 0), 0);
+  const activeLoans = loans.filter(l => l.currentOutstanding > 0);
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1>Liabilities & Loans</h1>
+      <p>Track Home, Personal, Vehicle, Education loans and Credit Card debt</p>
+    </div>
+
+    <!-- Sub-navigation Pills -->
+    <div class="subnav-pills">
+      <a href="#/accounts" class="subnav-pill">💵 Liquid Accounts</a>
+      <a href="#/investments" class="subnav-pill">📈 Investments</a>
+      <a href="#/lending" class="subnav-pill">🤝 Lend & Borrow</a>
+      <a href="#/liabilities" class="subnav-pill active">🏛️ Liabilities & Loans</a>
+      <a href="#/insurance" class="subnav-pill">🛡️ Insurance</a>
+    </div>
+
+    <!-- KPI Summary Bar -->
+    <div class="stats-grid" style="margin-bottom:var(--sp-5);">
+      <div class="stat-card expense">
+        <div class="stat-label">Total Debt Outstanding</div>
+        <div class="stat-value" style="color:var(--red)">${formatCurrency(totalOutstanding)}</div>
+        <div class="stat-sub">Across ${activeLoans.length} active liabilities</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Monthly EMI Obligations</div>
+        <div class="stat-value">${formatCurrency(totalEmi)}</div>
+        <div class="stat-sub">Monthly cash outflow</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Loans</div>
+        <div class="stat-value">${activeLoans.length}</div>
+        <div class="stat-sub">${loans.length - activeLoans.length} fully paid off</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:var(--sp-4);">
+      <button class="btn btn-primary" id="btn-add-liability">+ Add Loan / Liability</button>
+    </div>
+
+    <!-- Loans Grid -->
+    <div class="financial-cards-grid">
+      ${loans.map(loan => {
+        const total = loan.totalLoanAmount || 0;
+        const paid = loan.totalPaid || (total - loan.currentOutstanding) || 0;
+        const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+        const isClosed = loan.currentOutstanding <= 0;
+
+        return `
+          <div class="financial-card">
+            <div class="f-card-header">
+              <div>
+                <div class="f-card-title">${escapeHtml(loan.loanName)}</div>
+                <div class="f-card-subtitle">${escapeHtml(loan.lender || 'Lender')} · ${escapeHtml(loan.loanType || 'Loan')}</div>
+              </div>
+              <span class="badge-status ${isClosed ? 'settled' : 'active'}">${isClosed ? 'Closed' : 'Active'}</span>
+            </div>
+
+            <div class="f-card-amount-block">
+              <div>
+                <div class="f-card-amount-label">Current Outstanding</div>
+                <div class="f-card-amount-val" style="color:var(--red)">${formatCurrency(loan.currentOutstanding)}</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="f-card-amount-label">Monthly EMI</div>
+                <div style="font-size:var(--fs-base);font-weight:700;color:var(--text-primary)">${formatCurrency(loan.monthlyEmi)}</div>
+              </div>
+            </div>
+
+            <!-- Repayment Progress -->
+            <div class="progress-track">
+              <div class="progress-fill ${pct === 100 ? 'green' : 'orange'}" style="width:${pct}%"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:var(--sp-2);">
+              <span>Repaid: ${formatCurrency(paid)} (${pct}%)</span>
+              <span>Total: ${formatCurrency(total)}</span>
+            </div>
+
+            <div class="f-card-meta">
+              <div class="f-card-meta-row">
+                <span>Interest Rate:</span>
+                <span>${loan.interestRate ? loan.interestRate + '% p.a.' : 'N/A'}</span>
+              </div>
+              <div class="f-card-meta-row">
+                <span>Next EMI Due Date:</span>
+                <span style="font-weight:600;color:var(--text-primary);">${formatDate(loan.nextDueDate) || 'Not set'}</span>
+              </div>
+              ${loan.accountNumber ? `<div class="f-card-meta-row"><span>Account No:</span><span>${escapeHtml(loan.accountNumber)}</span></div>` : ''}
+              ${loan.notes ? `<div class="f-card-meta-row" style="font-style:italic;"><span>Notes:</span><span>${escapeHtml(loan.notes)}</span></div>` : ''}
+            </div>
+
+            <div class="f-card-actions">
+              ${!isClosed ? `
+                <button class="btn btn-sm btn-primary record-emi-btn" data-loan-id="${loan.id}" style="flex:1;">
+                  💸 Record EMI Payment
+                </button>
+              ` : '<div style="flex:1;font-size:12px;color:var(--green);font-weight:600;">✓ Debt Fully Cleared</div>'}
+              <button class="btn btn-sm btn-secondary edit-loan-btn" data-loan-id="${loan.id}">✏️ Edit</button>
+              <button class="btn btn-sm btn-ghost delete-loan-btn" data-loan-id="${loan.id}">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+      ${loans.length === 0 ? `
+        <div class="empty-state" style="grid-column:1/-1;">
+          <div class="emoji">🏛️</div>
+          <h3>No liabilities recorded</h3>
+          <p>Track your Home Loans, Car Loans, Personal Loans, and Credit Card balances with automatic EMI schedules.</p>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  $('#btn-add-liability')?.addEventListener('click', () => showLiabilityModal());
+
+  $$('.record-emi-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.loanId);
+      const loan = loans.find(l => l.id === id);
+      if (loan) showLiabilityRepaymentModal(loan);
+    });
+  });
+
+  $$('.edit-loan-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.loanId);
+      const loan = loans.find(l => l.id === id);
+      if (loan) showLiabilityModal(loan);
+    });
+  });
+
+  $$('.delete-loan-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.loanId);
+      if (confirm('Delete this loan record?')) {
+        await deleteLiability(id);
+        showToast('Loan record deleted.', 'info');
+        handleRoute();
+      }
+    });
+  });
+}
+
+// ── Liability Modals ──────────────────────────────────────────────────
+async function showLiabilityModal(data = {}) {
+  const isEdit = !!data.id;
+
+  showModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Edit' : 'New'} Liability / Loan</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="liability-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Loan Name *</label>
+          <input type="text" id="loan-name" class="form-control" value="${escapeHtml(data.loanName || '')}" required placeholder="e.g. Home Loan, Car Loan, HDFC Credit Card">
+        </div>
+        <div class="form-group">
+          <label>Loan Type</label>
+          <select id="loan-type" class="form-control">
+            <option value="home" ${data.loanType === 'home' ? 'selected' : ''}>Home Loan</option>
+            <option value="personal" ${data.loanType === 'personal' ? 'selected' : ''}>Personal Loan</option>
+            <option value="vehicle" ${data.loanType === 'vehicle' ? 'selected' : ''}>Vehicle Loan</option>
+            <option value="education" ${data.loanType === 'education' ? 'selected' : ''}>Education Loan</option>
+            <option value="credit_card" ${data.loanType === 'credit_card' ? 'selected' : ''}>Credit Card Outstanding</option>
+            <option value="business" ${data.loanType === 'business' ? 'selected' : ''}>Business Loan</option>
+            <option value="family" ${data.loanType === 'family' ? 'selected' : ''}>Family / Hand Loan</option>
+            <option value="other" ${data.loanType === 'other' ? 'selected' : ''}>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Lender / Bank / Institution</label>
+          <input type="text" id="loan-lender" class="form-control" value="${escapeHtml(data.lender || '')}" placeholder="e.g. SBI, HDFC Bank, ICICI">
+        </div>
+        <div class="form-group">
+          <label>Account / Loan Number</label>
+          <input type="text" id="loan-account-num" class="form-control" value="${escapeHtml(data.accountNumber || '')}" placeholder="e.g. LN-984210">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Original Loan Amount (₹) *</label>
+          <input type="number" id="loan-orig" class="form-control" step="any" min="0" value="${data.totalLoanAmount || ''}" required>
+        </div>
+        <div class="form-group">
+          <label>Current Outstanding Balance (₹) *</label>
+          <input type="number" id="loan-out" class="form-control" step="any" min="0" value="${data.currentOutstanding !== undefined ? data.currentOutstanding : ''}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Monthly EMI (₹)</label>
+          <input type="number" id="loan-emi" class="form-control" step="any" min="0" value="${data.monthlyEmi || ''}" placeholder="e.g. 15000">
+        </div>
+        <div class="form-group">
+          <label>Interest Rate (% p.a.)</label>
+          <input type="number" id="loan-rate" class="form-control" step="any" min="0" value="${data.interestRate || ''}" placeholder="e.g. 8.5">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tenure (Months)</label>
+          <input type="number" id="loan-tenure" class="form-control" value="${data.tenureMonths || ''}" placeholder="e.g. 240">
+        </div>
+        <div class="form-group">
+          <label>Next Due Date</label>
+          <input type="date" id="loan-due" class="form-control" value="${data.nextDueDate || todayISO()}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="loan-notes" class="form-control" rows="2" placeholder="Auto-debit accounts, collateral or prepayment details">${escapeHtml(data.notes || '')}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Save'} Loan</button>
+      </div>
+    </form>
+  `);
+
+  $('#liability-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      loanName: $('#loan-name').value.trim(),
+      loanType: $('#loan-type').value,
+      lender: $('#loan-lender').value.trim(),
+      accountNumber: $('#loan-account-num').value.trim(),
+      totalLoanAmount: parseFloat($('#loan-orig').value) || 0,
+      currentOutstanding: parseFloat($('#loan-out').value) || 0,
+      monthlyEmi: parseFloat($('#loan-emi').value) || 0,
+      interestRate: parseFloat($('#loan-rate').value) || 0,
+      tenureMonths: parseInt($('#loan-tenure').value) || 0,
+      nextDueDate: $('#loan-due').value,
+      notes: $('#loan-notes').value.trim()
+    };
+
+    try {
+      if (isEdit) {
+        await updateLiability(data.id, payload);
+        showToast('Loan details updated!', 'success');
+      } else {
+        await createLiability(payload);
+        showToast('Loan record added!', 'success');
+      }
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
+}
+
+async function showLiabilityRepaymentModal(loan) {
+  const accounts = await getActiveAccounts();
+
+  showModal(`
+    <div class="modal-header">
+      <h3>Record EMI Payment — ${escapeHtml(loan.loanName)}</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="loan-repay-form">
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-3);margin-bottom:var(--sp-4);">
+        <div style="font-size:12px;display:flex;justify-content:space-between;">
+          <span>Current Debt: <strong style="color:var(--red)">${formatCurrency(loan.currentOutstanding)}</strong></span>
+          <span>Standard EMI: <strong>${formatCurrency(loan.monthlyEmi)}</strong></span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Payment Amount (₹) *</label>
+          <input type="number" id="lrp-amount" class="form-control" step="any" min="1" max="${loan.currentOutstanding}" value="${loan.monthlyEmi || loan.currentOutstanding}" required>
+        </div>
+        <div class="form-group">
+          <label>Payment Date *</label>
+          <input type="date" id="lrp-date" class="form-control" value="${todayISO()}" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Paid From Bank / Account *</label>
+        <select id="lrp-account" class="form-control" required>
+          ${accounts.map(a => `<option value="${a.id}">${a.icon || ''} ${escapeHtml(a.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Notes / Reference</label>
+        <input type="text" id="lrp-notes" class="form-control" placeholder="EMI installment or partial prepayment">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Confirm EMI Payment</button>
+      </div>
+    </form>
+  `);
+
+  $('#loan-repay-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const amount = parseFloat($('#lrp-amount').value) || 0;
+    const date = $('#lrp-date').value;
+    const accountId = parseInt($('#lrp-account').value) || null;
+    const notes = $('#lrp-notes').value.trim();
+
+    try {
+      await recordLiabilityRepayment(loan.id, { amount, date, accountId, notes });
+      showToast(`EMI payment of ${formatCurrency(amount)} recorded!`, 'success');
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
+}
+
+// ── INSURANCE MANAGER VIEW ────────────────────────────────────────────
+
+async function renderInsurance(container) {
+  const policies = await getInsurancePolicies();
+  const totalCover = policies.reduce((acc, p) => acc + (p.sumInsured || 0), 0);
+  const totalAnnualPremium = policies.reduce((acc, p) => {
+    const mult = p.paymentFrequency === 'monthly' ? 12 : p.paymentFrequency === 'quarterly' ? 4 : 1;
+    return acc + ((p.premiumAmount || 0) * mult);
+  }, 0);
+
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const monthLater = new Date(now);
+  monthLater.setDate(now.getDate() + 30);
+  const monthLaterStr = monthLater.toISOString().split('T')[0];
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1>Insurance Policies</h1>
+      <p>Health, Term Life, Motor, and Accident coverage shields</p>
+    </div>
+
+    <!-- Sub-navigation Pills -->
+    <div class="subnav-pills">
+      <a href="#/accounts" class="subnav-pill">💵 Liquid Accounts</a>
+      <a href="#/investments" class="subnav-pill">📈 Investments</a>
+      <a href="#/lending" class="subnav-pill">🤝 Lend & Borrow</a>
+      <a href="#/liabilities" class="subnav-pill">🏛️ Liabilities & Loans</a>
+      <a href="#/insurance" class="subnav-pill active">🛡️ Insurance</a>
+    </div>
+
+    <!-- KPI Summary Bar -->
+    <div class="stats-grid" style="margin-bottom:var(--sp-5);">
+      <div class="stat-card income">
+        <div class="stat-label">Total Sum Insured (Cover)</div>
+        <div class="stat-value" style="color:var(--green)">${formatCurrency(totalCover)}</div>
+        <div class="stat-sub">Across ${policies.length} policies</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Annual Premiums</div>
+        <div class="stat-value">${formatCurrency(totalAnnualPremium)}</div>
+        <div class="stat-sub">Protection investment per year</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Policies</div>
+        <div class="stat-value">${policies.filter(p => p.status === 'active').length}</div>
+        <div class="stat-sub">IRDAI compliant</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:var(--sp-4);">
+      <button class="btn btn-primary" id="btn-add-policy">+ Add Insurance Policy</button>
+    </div>
+
+    <!-- Policies Grid -->
+    <div class="financial-cards-grid">
+      ${policies.map(policy => {
+        const isRenewalSoon = policy.nextRenewalDate && policy.nextRenewalDate <= monthLaterStr && policy.nextRenewalDate >= todayStr;
+        const isOverdue = policy.nextRenewalDate && policy.nextRenewalDate < todayStr;
+        const statusClass = isOverdue ? 'overdue' : isRenewalSoon ? 'due-soon' : 'active';
+        const statusLabel = isOverdue ? 'Renewal Overdue' : isRenewalSoon ? 'Renewal Soon' : 'Active';
+
+        return `
+          <div class="financial-card">
+            <div class="f-card-header">
+              <div>
+                <div class="f-card-title">${escapeHtml(policy.policyName)}</div>
+                <div class="f-card-subtitle">${escapeHtml(policy.provider || 'Provider')} · ${escapeHtml(policy.policyType).toUpperCase()}</div>
+              </div>
+              <span class="badge-status ${statusClass}">${statusLabel}</span>
+            </div>
+
+            <div class="f-card-amount-block">
+              <div>
+                <div class="f-card-amount-label">Sum Insured (Cover)</div>
+                <div class="f-card-amount-val" style="color:var(--green)">${formatCurrency(policy.sumInsured)}</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="f-card-amount-label">Premium (${policy.paymentFrequency})</div>
+                <div style="font-size:var(--fs-base);font-weight:700;color:var(--text-primary)">${formatCurrency(policy.premiumAmount)}</div>
+              </div>
+            </div>
+
+            <div class="f-card-meta">
+              <div class="f-card-meta-row">
+                <span>Next Renewal Date:</span>
+                <span style="font-weight:600;color:${isOverdue ? 'var(--red)' : isRenewalSoon ? 'var(--yellow)' : 'var(--text-primary)'}">
+                  ${formatDate(policy.nextRenewalDate) || 'Not set'}
+                </span>
+              </div>
+              <div class="f-card-meta-row">
+                <span>Policy Number:</span>
+                <span>${escapeHtml(policy.policyNumber || 'N/A')}</span>
+              </div>
+              <div class="f-card-meta-row">
+                <span>Policyholder & Nominee:</span>
+                <span>${escapeHtml(policy.policyholder || 'Self')}${policy.nominee ? ' (Nominee: ' + escapeHtml(policy.nominee) + ')' : ''}</span>
+              </div>
+              ${policy.notes ? `<div class="f-card-meta-row" style="font-style:italic;"><span>Emergency/TPA:</span><span>${escapeHtml(policy.notes)}</span></div>` : ''}
+            </div>
+
+            <div class="f-card-actions">
+              <button class="btn btn-sm btn-secondary edit-policy-btn" data-policy-id="${policy.id}" style="flex:1;">✏️ Edit</button>
+              <button class="btn btn-sm btn-ghost delete-policy-btn" data-policy-id="${policy.id}">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+      ${policies.length === 0 ? `
+        <div class="empty-state" style="grid-column:1/-1;">
+          <div class="emoji">🛡️</div>
+          <h3>No insurance policies added</h3>
+          <p>Safeguard your family and assets by tracking Health, Term Life, and Vehicle insurance policies and renewal dates.</p>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  $('#btn-add-policy')?.addEventListener('click', () => showInsuranceModal());
+
+  $$('.edit-policy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.policyId);
+      const policy = policies.find(p => p.id === id);
+      if (policy) showInsuranceModal(policy);
+    });
+  });
+
+  $$('.delete-policy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.policyId);
+      if (confirm('Delete this insurance policy?')) {
+        await deleteInsurancePolicy(id);
+        showToast('Policy deleted.', 'info');
+        handleRoute();
+      }
+    });
+  });
+}
+
+// ── Insurance Modal ───────────────────────────────────────────────────
+async function showInsuranceModal(data = {}) {
+  const isEdit = !!data.id;
+
+  showModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Edit' : 'New'} Insurance Policy</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="insurance-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Insurance Provider *</label>
+          <input type="text" id="ins-provider" class="form-control" value="${escapeHtml(data.provider || '')}" required placeholder="e.g. HDFC ERGO, Star Health, LIC, ICICI Lombard">
+        </div>
+        <div class="form-group">
+          <label>Policy Name *</label>
+          <input type="text" id="ins-name" class="form-control" value="${escapeHtml(data.policyName || '')}" required placeholder="e.g. Optima Secure, Tech Term">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Policy Type</label>
+          <select id="ins-type" class="form-control">
+            <option value="health" ${data.policyType === 'health' ? 'selected' : ''}>Health Insurance</option>
+            <option value="term" ${data.policyType === 'term' ? 'selected' : ''}>Term Life Insurance</option>
+            <option value="vehicle" ${data.policyType === 'vehicle' ? 'selected' : ''}>Motor / Vehicle Insurance</option>
+            <option value="accident" ${data.policyType === 'accident' ? 'selected' : ''}>Personal Accident</option>
+            <option value="property" ${data.policyType === 'property' ? 'selected' : ''}>Property / Home Insurance</option>
+            <option value="other" ${data.policyType === 'other' ? 'selected' : ''}>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Policy Number</label>
+          <input type="text" id="ins-number" class="form-control" value="${escapeHtml(data.policyNumber || '')}" placeholder="e.g. POL-1092847">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Sum Insured (Cover ₹) *</label>
+          <input type="number" id="ins-cover" class="form-control" step="any" min="0" value="${data.sumInsured || ''}" required placeholder="e.g. 1000000">
+        </div>
+        <div class="form-group">
+          <label>Premium Amount (₹) *</label>
+          <input type="number" id="ins-premium" class="form-control" step="any" min="0" value="${data.premiumAmount || ''}" required placeholder="e.g. 12500">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Payment Frequency</label>
+          <select id="ins-freq" class="form-control">
+            <option value="yearly" ${data.paymentFrequency === 'yearly' ? 'selected' : ''}>Yearly (Annual)</option>
+            <option value="monthly" ${data.paymentFrequency === 'monthly' ? 'selected' : ''}>Monthly</option>
+            <option value="quarterly" ${data.paymentFrequency === 'quarterly' ? 'selected' : ''}>Quarterly</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Next Renewal Date *</label>
+          <input type="date" id="ins-renewal" class="form-control" value="${data.nextRenewalDate || todayISO()}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Policyholder Name</label>
+          <input type="text" id="ins-holder" class="form-control" value="${escapeHtml(data.policyholder || 'Self')}">
+        </div>
+        <div class="form-group">
+          <label>Nominee</label>
+          <input type="text" id="ins-nominee" class="form-control" value="${escapeHtml(data.nominee || '')}" placeholder="e.g. Spouse / Parents">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Emergency Notes / TPA Helpline</label>
+        <textarea id="ins-notes" class="form-control" rows="2" placeholder="Cashless network hospitals, TPA contact, claims process">${escapeHtml(data.notes || '')}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Save'} Policy</button>
+      </div>
+    </form>
+  `);
+
+  $('#insurance-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      provider: $('#ins-provider').value.trim(),
+      policyName: $('#ins-name').value.trim(),
+      policyType: $('#ins-type').value,
+      policyNumber: $('#ins-number').value.trim(),
+      sumInsured: parseFloat($('#ins-cover').value) || 0,
+      premiumAmount: parseFloat($('#ins-premium').value) || 0,
+      paymentFrequency: $('#ins-freq').value,
+      nextRenewalDate: $('#ins-renewal').value,
+      policyholder: $('#ins-holder').value.trim(),
+      nominee: $('#ins-nominee').value.trim(),
+      notes: $('#ins-notes').value.trim()
+    };
+
+    try {
+      if (isEdit) {
+        await updateInsurancePolicy(data.id, payload);
+        showToast('Policy updated!', 'success');
+      } else {
+        await createInsurancePolicy(payload);
+        showToast('Policy added!', 'success');
+      }
+      closeModal();
+      handleRoute();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  });
+}
+
+// ── WEALTHBOOK KNOWLEDGE BASE VIEW ────────────────────────────────────
+
+async function renderKnowledge(container) {
+  let selectedCategory = 'all';
+
+  container.innerHTML = `
+    <div class="knowledge-container">
+      <div class="knowledge-hero">
+        <h2>👑 Wealthbook Knowledge Base</h2>
+        <p>Essential financial education based on RBI, SEBI, AMFI, and IRDAI principles. Practical frameworks and action blueprints designed for Indian realities.</p>
+      </div>
+
+      <!-- Action Journeys Section -->
+      <div class="journey-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 style="font-size:var(--fs-base);font-weight:700;">🚀 Guided Action Journeys</h3>
+          <span style="font-size:11px;color:var(--accent);font-weight:700;">STEP-BY-STEP TRANSFORMATION</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:var(--sp-4);margin-top:var(--sp-4);">
+          <!-- Journey 1: 7 Days -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4);">
+            <div style="font-size:var(--fs-sm);font-weight:700;margin-bottom:4px;">🚀 Your First 7 Days with Money</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:var(--sp-3);">Gain 100% clarity over your bank accounts, leaks, and cashflow in 7 simple daily steps.</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              ${LEARNING_JOURNEYS[0].steps.map(s => `
+                <div style="font-size:12px;display:flex;align-items:flex-start;gap:6px;">
+                  <span style="color:var(--accent);font-weight:700;">D${s.day}:</span>
+                  <span><strong>${escapeHtml(s.title)}</strong> — ${escapeHtml(s.task)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Journey 2: 30 Days -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4);">
+            <div style="font-size:var(--fs-sm);font-weight:700;margin-bottom:4px;">🏆 30 Days of Better Money Management</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:var(--sp-3);">A 4-week transformation blueprint to eliminate financial anxiety and automate wealth creation.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${LEARNING_JOURNEYS[1].steps.map(s => `
+                <div style="font-size:12px;display:flex;align-items:flex-start;gap:6px;">
+                  <span style="color:var(--green);font-weight:700;">${s.week}:</span>
+                  <div>
+                    <strong>${escapeHtml(s.title)}</strong><br>
+                    <span style="color:var(--text-secondary);font-size:11px;">${escapeHtml(s.description)}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Filter Pills -->
+      <div style="margin-bottom:var(--sp-4);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
+        <h3 style="font-size:var(--fs-base);font-weight:700;">📚 The 8 Core Financial Guides</h3>
+        <div class="filter-presets" style="margin:0;">
+          <button class="filter-preset-btn active" data-kcat="all">All</button>
+          <button class="filter-preset-btn" data-kcat="Foundation">Foundation</button>
+          <button class="filter-preset-btn" data-kcat="Budgeting">Budgeting</button>
+          <button class="filter-preset-btn" data-kcat="Safety">Safety</button>
+          <button class="filter-preset-btn" data-kcat="Debt Freedom">Debt</button>
+          <button class="filter-preset-btn" data-kcat="Investing">Investing</button>
+          <button class="filter-preset-btn" data-kcat="Protection">Insurance</button>
+        </div>
+      </div>
+
+      <!-- Guides List -->
+      <div id="guides-list"></div>
+    </div>
+  `;
+
+  function renderGuidesList() {
+    const listEl = $('#guides-list');
+    const filtered = selectedCategory === 'all'
+      ? KNOWLEDGE_GUIDES
+      : KNOWLEDGE_GUIDES.filter(g => g.tag.toLowerCase() === selectedCategory.toLowerCase());
+
+    listEl.innerHTML = filtered.map(guide => {
+      // Basic markdown parser for headings and bullet points
+      const bodyHtml = guide.content
+        .replace(/### (.*?)\n/g, '<h3>$1</h3>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\* ([^\n]+)/g, '<li>$1</li>')
+        .replace(/- \[ \] ([^\n]+)/g, '<li style="list-style:none;">⬜ $1</li>')
+        .replace(/\n\n/g, '<br>');
+
+      return `
+        <div class="guide-article-card" id="card-${guide.id}">
+          <button class="guide-header-btn" data-guide-toggle="${guide.id}">
+            <div class="guide-title-wrap">
+              <span class="guide-num">${guide.number}</span>
+              <div>
+                <div style="font-weight:700;font-size:var(--fs-base);color:var(--text-primary);display:flex;align-items:center;gap:6px;">
+                  <span>${guide.icon}</span> ${escapeHtml(guide.title)}
+                  <span class="badge-status active" style="font-size:9px;">${guide.tag}</span>
+                </div>
+                <div style="font-size:var(--fs-xs);color:var(--text-secondary);">${escapeHtml(guide.subtitle)}</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:var(--sp-3);">
+              <span style="font-size:11px;color:var(--text-muted);">${guide.readTime}</span>
+              <span class="guide-toggle-icon" style="font-size:14px;transition:transform 0.2s;">▼</span>
+            </div>
+          </button>
+          <div class="guide-content-body" id="body-${guide.id}" style="display:none;">
+            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--sp-3);">${escapeHtml(guide.summary)}</p>
+            <div>${bodyHtml}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Toggle expand handler
+    $$('[data-guide-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.guideToggle;
+        const body = $(`#body-${id}`);
+        const card = $(`#card-${id}`);
+        const icon = btn.querySelector('.guide-toggle-icon');
+
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        card.classList.toggle('open', !isOpen);
+        if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+      });
+    });
+  }
+
+  $$('[data-kcat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('[data-kcat]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedCategory = btn.dataset.kcat;
+      renderGuidesList();
+    });
+  });
+
+  renderGuidesList();
 }
 
 // ── SETTINGS VIEW ─────────────────────────────────────────────────────
@@ -1491,8 +3242,27 @@ async function renderSettings(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Settings</h1>
-      <p>Customize your app</p>
+      <h1>Settings & More</h1>
+      <p>Wealth modules, categories, data backup and customizations</p>
+    </div>
+
+    <!-- Quick Access Modules (Mobile & Desktop) -->
+    <div class="section">
+      <div class="section-header"><h2>Wealth Management Modules</h2></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:var(--sp-3);">
+        <a href="#/knowledge" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
+          <span>📚</span> <span>Knowledge Base & 30-Day Guide</span>
+        </a>
+        <a href="#/lending" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
+          <span>🤝</span> <span>Lending & Borrowing Ledger</span>
+        </a>
+        <a href="#/liabilities" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
+          <span>🏛️</span> <span>Liabilities & Loans (EMI)</span>
+        </a>
+        <a href="#/insurance" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
+          <span>🛡️</span> <span>Insurance Policies</span>
+        </a>
+      </div>
     </div>
 
     <div class="section">

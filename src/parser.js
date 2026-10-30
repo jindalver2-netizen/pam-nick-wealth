@@ -1,12 +1,51 @@
 /**
- * DhanRakshak — Quick Entry Parser
- * Parses natural language financial commands into structured transaction data.
+ * Wealthbook / Nick Wealth OS — Quick Entry Parser
+ * Parses natural language financial commands in English, Hindi, and Hinglish
+ * into structured transaction data.
  * Works entirely offline with local rules — no AI API calls needed.
  */
 
-const TRANSFER_KEYWORDS = ['transferred', 'transfer', 'moved', 'sent', 'shifted'];
-const INCOME_KEYWORDS = ['received', 'income', 'salary', 'earned', 'got', 'refund', 'cashback', 'bonus', 'payment received'];
-const INVESTMENT_KEYWORDS = ['invested', 'investment', 'sip'];
+const TRANSFER_KEYWORDS = [
+  'transferred', 'transfer', 'moved', 'sent', 'shifted', 'bheje', 'bheja', 'transfer kiya', 'shift kiya', 'daale', 'daala'
+];
+
+const INCOME_KEYWORDS = [
+  'received', 'income', 'salary', 'earned', 'got', 'refund', 'cashback', 'bonus', 'payment received',
+  'aaye', 'aaya', 'mile', 'mila', 'credit hua', 'jama hue', 'jama hua', 'pese aaye', 'paise aaye', 'kamaya'
+];
+
+const EXPENSE_KEYWORDS = [
+  'spent', 'paid', 'paid to', 'bought', 'expense', 'diye', 'diya', 'kharch', 'kharcha', 'kharch kiya',
+  'bhara', 'bhari', 'de diya', 'dediya', 'chuka diya', 'kharida'
+];
+
+const INVESTMENT_KEYWORDS = ['invested', 'investment', 'sip', 'lagaye', 'lagaya'];
+
+/**
+ * Parse date expressions like "aaj", "today", "kal", "yesterday", "parso"
+ */
+function extractDate(tokens, lower) {
+  const now = new Date();
+  let dateObj = new Date(now);
+  let matchedTokens = [];
+
+  // Yesterday / Kal (check if past tense words present)
+  if (tokens.includes('yesterday') || lower.includes('beeta kal') || (tokens.includes('kal') && (lower.includes('aaye') || lower.includes('diye') || lower.includes('mila') || lower.includes('gaya') || lower.includes('tha')))) {
+    dateObj.setDate(now.getDate() - 1);
+    matchedTokens.push('yesterday', 'kal');
+  } else if (tokens.includes('today') || tokens.includes('aaj')) {
+    matchedTokens.push('today', 'aaj');
+  } else if (tokens.includes('parso') || tokens.includes('day before yesterday')) {
+    dateObj.setDate(now.getDate() - 2);
+    matchedTokens.push('parso');
+  }
+
+  // ISO string formatted with Indian timezone considerations (local midnight or current time)
+  return {
+    date: dateObj.toISOString(),
+    matchedTokens
+  };
+}
 
 /**
  * Parse a quick-entry command string.
@@ -30,17 +69,21 @@ export function parseEntry(input, accounts = [], categories = []) {
   const lower = raw.toLowerCase();
   const tokens = tokenize(lower);
 
-  // 1. Extract amount
-  const amountInfo = extractAmount(raw, tokens);
+  // 1. Extract Date (Today, Kal, Yesterday, etc.)
+  const dateInfo = extractDate(tokens, lower);
+  let workingTokens = tokens.filter(t => !dateInfo.matchedTokens.includes(t));
+
+  // 2. Extract amount
+  const amountInfo = extractAmount(raw, workingTokens);
   if (!amountInfo.amount) {
     return { error: 'Could not find an amount in your entry.', raw };
   }
 
-  // 2. Remove amount tokens from working set
-  let workingTokens = tokens.filter((_, i) => !amountInfo.usedIndices.has(i));
+  // 3. Remove amount tokens from working set
+  workingTokens = workingTokens.filter((_, i) => !amountInfo.usedIndices.has(i));
   let workingLower = workingTokens.join(' ');
 
-  // 3. Detect transaction type
+  // 4. Detect transaction type (Expense vs Income vs Transfer)
   let type = 'expense';
   let fromAccount = null, toAccount = null;
   let description = '';
@@ -57,15 +100,24 @@ export function parseEntry(input, accounts = [], categories = []) {
   }
 
   // Check for income pattern
+  let detectedIncomeKeyword = null;
   if (type !== 'transfer') {
     const incomeResult = detectIncome(workingLower, workingTokens);
     if (incomeResult) {
       type = 'income';
+      detectedIncomeKeyword = incomeResult.keyword;
       workingTokens = incomeResult.remainingTokens;
+    } else {
+      // Check for explicit expense keywords to clean up description tokens
+      const expenseResult = detectExpense(workingLower, workingTokens);
+      if (expenseResult) {
+        type = 'expense';
+        workingTokens = expenseResult.remainingTokens;
+      }
     }
   }
 
-  // 4. Match account (for non-transfer types, find the payment account)
+  // 5. Match account (for non-transfer types, find the payment account)
   let accountMatch = null;
   if (type !== 'transfer') {
     const accResult = matchAccount(workingTokens, accounts);
@@ -75,26 +127,40 @@ export function parseEntry(input, accounts = [], categories = []) {
     }
   }
 
-  // 5. Match category
+  // 6. Match category
   if (type !== 'transfer') {
     const relevantCats = categories.filter(c => c.type === type);
     const catResult = matchCategory(workingTokens, relevantCats);
     if (catResult) {
       categoryMatch = catResult.category;
       workingTokens = catResult.remainingTokens;
+    } else if (detectedIncomeKeyword) {
+      // If income keyword was also a category like 'salary', match it
+      const fallbackCat = relevantCats.find(c => c.name.toLowerCase() === detectedIncomeKeyword.toLowerCase() || (c.keywords && c.keywords.toLowerCase().includes(detectedIncomeKeyword.toLowerCase())));
+      if (fallbackCat) {
+        categoryMatch = fallbackCat;
+      }
     }
   }
 
-  // 6. Remaining tokens become description
+  // Common Hindi / Hinglish and English filler stop words
+  const stopWords = [
+    'from', 'to', 'in', 'on', 'for', 'the', 'a', 'an', 'of', 'my', 'and', 'with',
+    'rupees', 'rs', 'rupee', 'inr', 'rupaye', 'rupiye', 'rupya', 'ka', 'ke', 'ki', 'ko',
+    'mein', 'me', 'se', 'par', 'diye', 'diya', 'aaye', 'aaya', 'mile', 'mila', 'kharch',
+    'kharcha', 'bheja', 'bheje', 'hua', 'hue', 'tha', 'thi'
+  ];
+
+  // 7. Remaining tokens become description
   const descTokens = workingTokens.filter(t =>
-    t.length > 1 && !['from', 'to', 'in', 'on', 'for', 'the', 'a', 'an', 'of', 'my', 'and', 'with', 'rupees', 'rs', 'rupee', 'inr'].includes(t)
+    t.length > 1 && !stopWords.includes(t)
   );
 
   if (!description) {
     description = descTokens.length > 0 ? capitalizeFirst(descTokens.join(' ')) : (categoryMatch?.name || '');
   }
 
-  // 7. Build result
+  // 8. Build result
   const result = {
     type,
     amount: amountInfo.amount,
@@ -105,7 +171,7 @@ export function parseEntry(input, accounts = [], categories = []) {
     accountName: type === 'transfer' ? (fromAccount?.name || null) : (accountMatch?.name || null),
     toAccountId: toAccount?.id || null,
     toAccountName: toAccount?.name || null,
-    date: new Date().toISOString(),
+    date: dateInfo.date,
     confidence: calculateConfidence(amountInfo.amount, accountMatch || fromAccount, categoryMatch, type),
     raw,
     needsClarification: [],
@@ -146,26 +212,46 @@ function extractAmount(raw, tokens) {
     const num = parseNumber(token);
     if (num > 0) {
       usedIndices.add(i);
-      // Check if next token is "k" or "lakh" for multipliers
+      // Check if next token is "k", "hazaar", "thousand", or "lakh" for multipliers
       if (i + 1 < tokens.length) {
         const next = tokens[i + 1];
-        if (next === 'k' || next === 'thousand') { usedIndices.add(i + 1); return { amount: num * 1000, usedIndices }; }
-        if (next === 'lakh' || next === 'lac' || next === 'lakhs') { usedIndices.add(i + 1); return { amount: num * 100000, usedIndices }; }
-        if (next === 'crore' || next === 'cr') { usedIndices.add(i + 1); return { amount: num * 10000000, usedIndices }; }
+        if (next === 'k' || next === 'thousand' || next === 'hazaar' || next === 'hazar') {
+          usedIndices.add(i + 1);
+          return { amount: num * 1000, usedIndices };
+        }
+        if (next === 'lakh' || next === 'lac' || next === 'lakhs') {
+          usedIndices.add(i + 1);
+          return { amount: num * 100000, usedIndices };
+        }
+        if (next === 'crore' || next === 'cr') {
+          usedIndices.add(i + 1);
+          return { amount: num * 10000000, usedIndices };
+        }
+        if (next === 'sau' || next === 'hundred') {
+          usedIndices.add(i + 1);
+          return { amount: num * 100, usedIndices };
+        }
       }
-      // Check if previous token is "rs" or "rs."
-      if (i > 0 && (tokens[i - 1] === 'rs' || tokens[i - 1] === 'rs.')) {
+      // Check if previous token is "rs", "rs.", "rupaye", "₹"
+      if (i > 0 && ['rs', 'rs.', 'rupaye', 'rupiye', 'rupees', 'inr'].includes(tokens[i - 1])) {
         usedIndices.add(i - 1);
       }
       return { amount: num, usedIndices };
     }
 
-    // "rupees" after checking if previous was a number
-    if (['rupees', 'rupee', 'rs', 'rs.', 'inr'].includes(token)) {
+    // "rupees" / "rupaye" after checking if previous was a number
+    if (['rupees', 'rupee', 'rs', 'rs.', 'inr', 'rupaye', 'rupiye', 'rupya'].includes(token)) {
       usedIndices.add(i);
       if (i + 1 < tokens.length) {
         const nextNum = parseNumber(tokens[i + 1]);
-        if (nextNum > 0) { usedIndices.add(i + 1); return { amount: nextNum, usedIndices }; }
+        if (nextNum > 0) {
+          usedIndices.add(i + 1);
+          if (i + 2 < tokens.length && ['hazaar', 'hazar', 'thousand', 'k'].includes(tokens[i + 2])) {
+            usedIndices.add(i + 2);
+            return { amount: nextNum * 1000, usedIndices };
+          }
+          return { amount: nextNum, usedIndices };
+        }
       }
     }
   }
@@ -174,6 +260,14 @@ function extractAmount(raw, tokens) {
 }
 
 function parseNumber(str) {
+  // Support Hindi / Hinglish number words
+  const wordsMap = {
+    'sau': 100,
+    'ek': 1, 'do': 2, 'teen': 3, 'char': 4, 'paanch': 5,
+    'panch': 5, 'che': 6, 'saat': 7, 'aath': 8, 'nau': 9, 'das': 10
+  };
+  if (wordsMap[str]) return wordsMap[str];
+
   // Remove commas and try to parse
   const cleaned = str.replace(/,/g, '');
   const num = parseFloat(cleaned);
@@ -248,8 +342,20 @@ function detectTransfer(lower, tokens, accounts) {
 function detectIncome(lower, tokens) {
   for (const keyword of INCOME_KEYWORDS) {
     if (lower.includes(keyword)) {
-      const remaining = tokens.filter(t => !keyword.split(' ').includes(t));
-      return { remainingTokens: remaining };
+      const kwTokens = keyword.split(' ');
+      const remaining = tokens.filter(t => !kwTokens.includes(t));
+      return { keyword, remainingTokens: remaining };
+    }
+  }
+  return null;
+}
+
+function detectExpense(lower, tokens) {
+  for (const keyword of EXPENSE_KEYWORDS) {
+    if (lower.includes(keyword)) {
+      const kwTokens = keyword.split(' ');
+      const remaining = tokens.filter(t => !kwTokens.includes(t));
+      return { keyword, remainingTokens: remaining };
     }
   }
   return null;
@@ -313,6 +419,16 @@ function findAccountByName(name, accounts) {
     const abbr = words.map(w => w[0]).join('').toLowerCase();
     return abbr === lower || words[0].toLowerCase() === lower;
   });
+
+  // Match synonyms like "cashbox" -> "Cash in Hand", "bank" -> first bank account
+  if (lower === 'cashbox' || lower === 'cash' || lower === 'wallet' || lower === 'galla') {
+    match = accounts.find(a => a.type === 'cash' || a.name.toLowerCase().includes('cash') || a.name.toLowerCase().includes('wallet'));
+    if (match) return match;
+  }
+  if (lower === 'bank') {
+    match = accounts.find(a => a.type === 'bank' || a.name.toLowerCase().includes('bank'));
+    if (match) return match;
+  }
 
   return match || null;
 }
