@@ -1734,5 +1734,285 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   color: var(--accent);
 }
 
+/* ── Pam&Nick Multi-User UI & Styles ────────────────────────────────── */
+
+.sidebar-user-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-3);
+  margin: var(--sp-3) var(--sp-3) var(--sp-4);
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(124, 108, 240, 0.1));
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-user-card:hover {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(124, 108, 240, 0.2));
+  border-color: rgba(212, 175, 55, 0.5);
+  transform: translateY(-1px);
+}
+
+.user-pill-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.2);
+}
+
+.user-pill-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.user-pill-name {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-pill-role {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  opacity: 0.9;
+  letter-spacing: 0.5px;
+}
+
+/* Mobile Top Bar */
+.mobile-top-header {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-top-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--sp-3) var(--sp-4);
+    background: rgba(15, 15, 30, 0.9);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 90;
+  }
+
+  .m-brand-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    cursor: pointer;
+  }
+
+  .m-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1.5px solid var(--accent);
+  }
+
+  .m-brand-text {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .m-user-title {
+    font-weight: 700;
+    font-size: var(--fs-sm);
+    color: var(--text-primary);
+  }
+
+  .m-user-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .m-user-switch-pill {
+    background: rgba(212, 175, 55, 0.15);
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    color: var(--accent);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+/* Tracked Personal Asset Banner / Badges */
+.tracked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.gold-badge {
+  background: rgba(212, 175, 55, 0.15);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  color: #e6ca65;
+}
+
+/* Gold/Silver Valuation Card */
+.metal-valuation-card {
+  background: linear-gradient(135deg, rgba(30, 25, 10, 0.8), rgba(20, 20, 35, 0.9));
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  margin-top: var(--sp-3);
+}
+
+.metal-val-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.metal-val-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.metal-val-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.metal-val-value {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+
+/* Notes & Reminders Widget on Home */
+.notes-widget-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.notes-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+
+.note-item-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.note-item-text {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+
+.note-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Dashboard Customization Modal Controls */
+.pref-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pref-label-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+.pref-label-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Form switch toggle */
+.switch-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider-round {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  transition: .3s;
+  border-radius: 24px;
+}
+
+.slider-round:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider-round {
+  background-color: var(--accent);
+}
+
+input:checked + .slider-round:before {
+  transform: translateX(20px);
+}
+
+
 
 

@@ -1,15 +1,19 @@
 /**
- * DhanRakshak — Main Application
- * Single-page app with hash routing, all views, toast/modal, voice input.
+ * Pam&Nick Wealth (Wealthbook Lite) — Main Application
+ * Multi-user personal finance operating system with centralized wealth engine.
  */
 import {
   db, seedDefaults,
+  getActiveUserId, setActiveUserId, getCurrentUser, getUsers, authenticateUser, createUser, updateUser,
+  logAdminAction, getAuditLogs, getDashboardPreferences, setDashboardPreferences,
+  calculateUserWealth, calculateMetalValuation, fetchLiveMetalRates,
+  getNotes, createNote, updateNote, deleteNote, getDashboardNotes,
   createAccount, updateAccount, archiveAccount, getActiveAccounts, getAllAccounts, getAccountById,
   getCategories, createCategory, updateCategory, deleteCategory,
   createTransaction, updateTransaction, deleteTransaction, getTransaction, getTransactions, getRecentTransactions,
   getAccountBalance, getAllBalances, getTotalLiquidMoney,
   getMonthlyReport, getPreviousMonthReport, getDateRangeReport,
-  createAsset, updateAsset, getActiveAssets, addValuation, getValuations,
+  createAsset, updateAsset, deleteAsset, getActiveAssets, addValuation, getValuations,
   getNetWorth,
   createSnapshot, getSnapshots, getSnapshotBalances,
   exportToCSV, exportFullBackup, importFullBackup,
@@ -22,6 +26,7 @@ import {
 } from './db.js';
 import { KNOWLEDGE_GUIDES, LEARNING_JOURNEYS } from './knowledge.js';
 import { parseEntry, parseBankSMS } from './parser.js';
+import { askFinancialAssistant, parseReceiptWithAI, setNvidiaApiKey, getNvidiaApiKey } from './nvidia.js';
 import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
@@ -130,6 +135,254 @@ function showModal(html) {
 function closeModal() {
   $('#modal-overlay').classList.add('hidden');
   $('#modal-content').innerHTML = '';
+}
+
+// ── Multi-User & Profile Functions ─────────────────────────────────────
+
+async function updateUserDisplay(user = null) {
+  if (!user) user = await getCurrentUser();
+  if (!user) return;
+
+  const sidebarName = $('#sidebar-user-name');
+  const sidebarRole = $('#sidebar-user-role');
+  const mobileTitle = $('#mobile-header-user-title');
+  const mobileBadge = $('#mobile-user-badge');
+
+  if (sidebarName) sidebarName.textContent = `${user.username}'s Wealth`;
+  if (sidebarRole) sidebarRole.textContent = `${user.role === 'admin' ? 'Super Admin 👑' : 'Family Member'} ▾`;
+  if (mobileTitle) mobileTitle.textContent = `${user.username}'s Wealth`;
+  if (mobileBadge) mobileBadge.textContent = `👑 ${user.username}`;
+}
+
+async function showUserSwitchModal() {
+  const users = await getUsers();
+  const currentUserId = getActiveUserId();
+
+  showModal(`
+    <div class="modal-header">
+      <h3>👤 Switch Family Profile</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <div style="padding:var(--sp-2) 0;">
+      <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+        Each family member has completely isolated financial records, accounts, and reports.
+      </p>
+
+      <div style="display:flex;flex-direction:column;gap:var(--sp-2-5);">
+        ${users.map(u => `
+          <div class="user-select-row ${u.id === currentUserId ? 'active' : ''}" style="
+            display:flex;justify-content:space-between;align-items:center;
+            padding:var(--sp-3);background:var(--bg-surface);
+            border:1.5px solid ${u.id === currentUserId ? 'var(--accent)' : 'var(--border)'};
+            border-radius:var(--radius-md);cursor:pointer;"
+            data-user-id="${u.id}" data-pin="${u.pin}">
+            <div style="display:flex;align-items:center;gap:var(--sp-3);">
+              <div style="font-size:1.5rem;">${u.username.toLowerCase().includes('pam') ? '👸' : (u.role === 'admin' ? '👑' : '👤')}</div>
+              <div>
+                <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)} (${escapeHtml(u.username)})</div>
+                <div style="font-size:11px;color:var(--text-muted);">${u.role === 'admin' ? 'Super Admin · PIN: ' + u.pin : 'User · PIN: ' + u.pin}</div>
+              </div>
+            </div>
+            <div>
+              ${u.id === currentUserId 
+                ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE</span>'
+                : `<button class="btn btn-sm btn-primary switch-now-btn" data-id="${u.id}">Switch ➔</button>`
+              }
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);text-align:center;">
+        <span style="font-size:var(--fs-xs);color:var(--text-muted);">
+          Logged in as isolated tenant. Financial records are 100% private to each user.
+        </span>
+      </div>
+    </div>
+  `);
+
+  $$('.switch-now-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      setActiveUserId(targetId);
+      const user = await getCurrentUser();
+      await updateUserDisplay(user);
+      closeModal();
+      showToast(`Welcome back, ${user.name}!`, 'success');
+      handleRoute();
+    });
+  });
+}
+
+// ── Dashboard Customization Modal ─────────────────────────────────────
+
+async function showDashboardCustomizationModal() {
+  const prefs = await getDashboardPreferences();
+
+  showModal(`
+    <div class="modal-header">
+      <h3>⚙️ Customize Dashboard</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="dashboard-prefs-form" style="padding:var(--sp-2) 0;">
+      <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+        Choose which sections to display on your personal home dashboard. Preferences are saved for your account.
+      </p>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Liquid Accounts (Cash & Bank)</div>
+          <div class="pref-label-desc">Display liquid balances and quick cards</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-accounts" ${prefs.accounts !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Investments & Wealth Assets</div>
+          <div class="pref-label-desc">Show investment cards, mutual funds, gold</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-investments" ${prefs.investments !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Tracked Personal Assets</div>
+          <div class="pref-label-desc">Show personal keepsakes (excluded from wealth calculation)</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-personalAssets" ${prefs.personalAssets !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Notes & Reminders</div>
+          <div class="pref-label-desc">Pinned financial notes and payment reminders</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-notes" ${prefs.notes !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Recent Transactions</div>
+          <div class="pref-label-desc">Show latest money movements and ledger</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-transactions" ${prefs.transactions !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div style="margin-top:var(--sp-4);display:flex;justify-content:flex-end;gap:var(--sp-2);">
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Preferences</button>
+      </div>
+    </form>
+  `);
+
+  $('#dashboard-prefs-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newPrefs = {
+      accounts: $('#pref-accounts').checked,
+      investments: $('#pref-investments').checked,
+      personalAssets: $('#pref-personalAssets').checked,
+      notes: $('#pref-notes').checked,
+      transactions: $('#pref-transactions').checked,
+    };
+    await setDashboardPreferences(newPrefs);
+    closeModal();
+    showToast('Dashboard customized!', 'success');
+    handleRoute();
+  });
+}
+
+// ── Personal Notes Modal ──────────────────────────────────────────────
+
+async function showNoteModal(note = null) {
+  const isEdit = !!note;
+
+  showModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? 'Edit Note' : '📌 Add Financial Note / Reminder'}</h3>
+      <button class="modal-close">✕</button>
+    </div>
+    <form id="note-form" style="padding:var(--sp-2) 0;">
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:var(--sp-3);">
+        Notes are informational only. They help track locker numbers, asset details, or reminders without changing your wealth balance.
+      </p>
+
+      <div class="form-group">
+        <label for="note-title">Title</label>
+        <input type="text" id="note-title" required placeholder="e.g., Locker 42 Gold Box or LIC Due Date" value="${note ? escapeHtml(note.title) : ''}">
+      </div>
+
+      <div class="form-group">
+        <label for="note-content">Details / Instructions</label>
+        <textarea id="note-content" rows="3" placeholder="Key numbers, details, instructions...">${note ? escapeHtml(note.content || '') : ''}</textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="note-date">Date</label>
+          <input type="date" id="note-date" value="${note ? note.date : todayISO()}">
+        </div>
+        <div class="form-group">
+          <label for="note-reminder">Reminder Date (Optional)</label>
+          <input type="date" id="note-reminder" value="${note?.reminderDate || ''}">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:var(--sp-4);margin-top:var(--sp-2);">
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);cursor:pointer;">
+          <input type="checkbox" id="note-show-dashboard" ${!note || note.showOnDashboard ? 'checked' : ''}>
+          <span>Show on Dashboard</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);cursor:pointer;">
+          <input type="checkbox" id="note-pin" ${note?.isPinned ? 'checked' : ''}>
+          <span>Pin to Top</span>
+        </label>
+      </div>
+
+      <div style="margin-top:var(--sp-4);display:flex;justify-content:flex-end;gap:var(--sp-2);">
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Save Note'}</button>
+      </div>
+    </form>
+  `);
+
+  $('#note-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+      title: $('#note-title').value.trim(),
+      content: $('#note-content').value.trim(),
+      date: $('#note-date').value,
+      reminderDate: $('#note-reminder').value || null,
+      showOnDashboard: $('#note-show-dashboard').checked ? 1 : 0,
+      isPinned: $('#note-pin').checked ? 1 : 0,
+    };
+
+    if (isEdit) {
+      await updateNote(note.id, data);
+      showToast('Note updated!', 'success');
+    } else {
+      await createNote(data);
+      showToast('Note saved!', 'success');
+    }
+    closeModal();
+    handleRoute();
+  });
 }
 
 // ── Router ────────────────────────────────────────────────────────────
@@ -542,16 +795,18 @@ async function renderHome(container) {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [totalLiquid, report, accounts, balances, assets] = await Promise.all([
-    getTotalLiquidMoney(),
+  const [wealth, prefs, currentUser, notes, report, accounts, balances, recentTxns, categories] = await Promise.all([
+    calculateUserWealth(),
+    getDashboardPreferences(),
+    getCurrentUser(),
+    getDashboardNotes(),
     getMonthlyReport(year, month),
     getActiveAccounts(),
     getAllBalances(),
-    getActiveAssets(),
+    getRecentTransactions(10),
+    getCategories()
   ]);
 
-  const recentTxns = await getRecentTransactions(10);
-  const categories = await getCategories();
   const catMap = {};
   categories.forEach(c => catMap[c.id] = c);
 
@@ -561,19 +816,42 @@ async function renderHome(container) {
   const netCashFlow = report.netCashFlow;
   const cashFlowClass = netCashFlow >= 0 ? 'savings' : 'expense';
 
+  // Sync user display in sidebar and mobile header
+  updateUserDisplay(currentUser);
+
   container.innerHTML = `
-    <div class="page-header">
-      <h1>Dashboard</h1>
-      <p>${getMonthName(month)} ${year}</p>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--sp-3);">
+      <div>
+        <h1 style="display:flex;align-items:center;gap:var(--sp-2);">
+          <span>👑 ${currentUser ? escapeHtml(currentUser.username) : 'My'}'s Wealth</span>
+        </h1>
+        <p style="color:var(--text-secondary);font-size:var(--fs-sm);">
+          ${currentUser ? escapeHtml(currentUser.name) : ''} · ${getMonthName(month)} ${year} · Wealthbook Lite
+        </p>
+      </div>
+      <div style="display:flex;gap:var(--sp-2);">
+        <button class="btn btn-sm btn-secondary" id="home-customize-btn" title="Customize Dashboard Sections">
+          ⚙️ Customize
+        </button>
+        <button class="btn btn-sm btn-secondary" id="home-switch-user-btn" title="Switch User Profile">
+          👤 Switch Profile
+        </button>
+      </div>
     </div>
 
     ${renderQuickEntry()}
 
+    <!-- Centralized Wealth Engine Core Cards -->
     <div class="stats-grid">
+      <div class="stat-card balance" style="--card-accent: #d4af37; background: linear-gradient(135deg, rgba(212,175,55,0.15), rgba(15,15,30,0.8));">
+        <div class="stat-label">Total Real Net Worth</div>
+        <div class="stat-value" style="color: #f7df79;">${formatCurrency(wealth.netWorth)}</div>
+        <div class="stat-sub">Liquid + Included Assets + Lending - Debt</div>
+      </div>
       <div class="stat-card balance" style="--card-accent: var(--accent)">
-        <div class="stat-label">Total Liquid Money</div>
-        <div class="stat-value">${formatCurrency(totalLiquid)}</div>
-        <div class="stat-sub">Across ${accounts.length} accounts</div>
+        <div class="stat-label">Liquid Money (Cash + Bank)</div>
+        <div class="stat-value">${formatCurrency(wealth.liquidMoney)}</div>
+        <div class="stat-sub">Across ${accounts.length} liquid accounts</div>
       </div>
       <div class="stat-card income">
         <div class="stat-label">Income This Month</div>
@@ -583,69 +861,100 @@ async function renderHome(container) {
         <div class="stat-label">Expenses This Month</div>
         <div class="stat-value">${formatCurrency(report.totalExpense)}</div>
       </div>
-      <div class="stat-card ${cashFlowClass}">
-        <div class="stat-label">Net Cash Flow</div>
-        <div class="stat-value">${netCashFlow >= 0 ? '+' : ''}${formatCurrency(netCashFlow)}</div>
-        <div class="stat-sub">Savings rate: ${report.savingsRate.toFixed(0)}%</div>
+    </div>
+
+    <!-- Additional Net Worth Details -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
+      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+        <div class="stat-label" style="font-size:11px;">Included Investments</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets)}</div>
+        <div class="stat-sub" style="font-size:10px;">${wealth.includedAssetsList.length} wealth-generating assets</div>
+      </div>
+      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+        <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets)}</div>
+        <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
+      </div>
+      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+        <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables)}</div>
+        <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
+      </div>
+      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+        <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities)}</div>
+        <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-header">
-        <h2>Accounts</h2>
-        <a href="#/accounts" class="btn-link">View All →</a>
-      </div>
-      <div class="accounts-grid">
-        ${accounts.map(acc => {
-          const bal = balances[acc.id] || 0;
-          return `
-            <div class="account-card" onclick="window.location.hash='#/accounts?id=${acc.id}'">
-              <div class="acc-icon">${acc.icon || ACCOUNT_TYPE_ICONS[acc.type] || '💳'}</div>
-              <div class="acc-name">${escapeHtml(acc.name)}</div>
-              <div class="acc-type">${acc.type}</div>
-              <div class="acc-balance ${bal >= 0 ? 'positive' : 'negative'}">${formatCurrency(bal)}</div>
+    <!-- Notes & Reminders Widget (if enabled) -->
+    ${prefs.notes !== false ? `
+      <div class="notes-widget-card">
+        <div class="notes-widget-header">
+          <h3 style="font-size:var(--fs-base);margin:0;display:flex;align-items:center;gap:6px;">
+            <span>📌</span> Notes & Reminders
+          </h3>
+          <button class="btn btn-sm btn-primary" id="home-add-note-btn">+ Add Note</button>
+        </div>
+        <div id="home-notes-list">
+          ${notes.length === 0 ? `
+            <div style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding:var(--sp-2);">
+              No active reminders. Keep financial notes or locker details here (informational only).
             </div>
-          `;
-        }).join('')}
-        ${accounts.length === 0 ? `
-          <div class="empty-state" style="grid-column: 1/-1;">
-            <div class="emoji">🏦</div>
-            <h3>No accounts yet</h3>
-            <p>Add your first account to start tracking.</p>
-            <button class="btn btn-primary" id="add-first-account">+ Add Account</button>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header">
-        <h2>Recent Transactions</h2>
-        <a href="#/transactions" class="btn-link">View All →</a>
-      </div>
-      <div class="txn-list" id="recent-txn-list">
-        ${recentTxns.length === 0 ? `
-          <div class="empty-state">
-            <div class="emoji">📝</div>
-            <h3>No transactions yet</h3>
-            <p>Use the fast entry above to record your first transaction, or load sample data to explore reports.</p>
-            <div style="display:flex;gap:var(--sp-2);justify-content:center;margin-top:var(--sp-2);">
-              <button class="btn btn-sm btn-primary" id="home-load-sample">✨ Load Sample Data</button>
+          ` : notes.map(n => `
+            <div class="note-item-pill">
+              <div>
+                <div class="note-item-text"><strong>${escapeHtml(n.title)}</strong> ${n.content ? '— ' + escapeHtml(n.content) : ''}</div>
+                <div class="note-item-meta">${n.date ? '📅 ' + formatDate(n.date) : ''} ${n.reminderDate ? '⏰ Reminder: ' + formatDate(n.reminderDate) : ''}</div>
+              </div>
+              <button class="btn-icon delete-note-btn" data-id="${n.id}" style="background:none;border:none;cursor:pointer;" title="Delete note">🗑️</button>
             </div>
-          </div>
-        ` : renderTransactionList(recentTxns, catMap, accMap)}
+          `).join('')}
+        </div>
       </div>
-    </div>
+    ` : ''}
 
-    ${assets.length > 0 ? `
+    <!-- Accounts Section (if enabled) -->
+    ${prefs.accounts !== false ? `
       <div class="section">
         <div class="section-header">
-          <h2>Investments</h2>
+          <h2>Accounts</h2>
+          <a href="#/accounts" class="btn-link">View All →</a>
+        </div>
+        <div class="accounts-grid">
+          ${accounts.map(acc => {
+            const bal = balances[acc.id] || 0;
+            return `
+              <div class="account-card" onclick="window.location.hash='#/accounts?id=${acc.id}'">
+                <div class="acc-icon">${acc.icon || ACCOUNT_TYPE_ICONS[acc.type] || '💳'}</div>
+                <div class="acc-name">${escapeHtml(acc.name)}</div>
+                <div class="acc-type">${acc.type}</div>
+                <div class="acc-balance ${bal >= 0 ? 'positive' : 'negative'}">${formatCurrency(bal)}</div>
+              </div>
+            `;
+          }).join('')}
+          ${accounts.length === 0 ? `
+            <div class="empty-state" style="grid-column: 1/-1;">
+              <div class="emoji">🏦</div>
+              <h3>No accounts yet</h3>
+              <p>Add your first account to start tracking.</p>
+              <button class="btn btn-primary" id="add-first-account">+ Add Account</button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- Investments Section (if enabled) -->
+    ${prefs.investments !== false && wealth.includedAssetsList.length > 0 ? `
+      <div class="section">
+        <div class="section-header">
+          <h2>Investments & Wealth Assets</h2>
           <a href="#/investments" class="btn-link">View All →</a>
         </div>
         <div class="accounts-grid">
-          ${assets.slice(0, 4).map(a => `
-            <div class="asset-card">
+          ${wealth.includedAssetsList.slice(0, 4).map(a => `
+            <div class="asset-card" onclick="window.location.hash='#/investments'">
               <div class="asset-header">
                 <div>
                   <div class="asset-name">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
@@ -657,7 +966,6 @@ async function renderHome(container) {
                 <div class="asset-invested">Invested: ${formatCurrency(a.investedAmount)}</div>
                 <div class="asset-gain ${a.currentValue >= a.investedAmount ? 'positive' : 'negative'}">
                   ${a.currentValue >= a.investedAmount ? '▲' : '▼'} ${formatCurrency(Math.abs(a.currentValue - a.investedAmount))}
-                  (${((a.currentValue - a.investedAmount) / a.investedAmount * 100).toFixed(1)}%)
                 </div>
               ` : ''}
             </div>
@@ -665,14 +973,83 @@ async function renderHome(container) {
         </div>
       </div>
     ` : ''}
+
+    <!-- Tracked Personal Assets Section (if enabled and present) -->
+    ${prefs.personalAssets !== false && wealth.personalAssetsList.length > 0 ? `
+      <div class="section">
+        <div class="section-header">
+          <h2>Tracked Personal Assets</h2>
+          <span class="tracked-badge" title="Excluded from Net Worth">Personal / Keepsake</span>
+        </div>
+        <div class="accounts-grid">
+          ${wealth.personalAssetsList.map(a => `
+            <div class="asset-card" style="border: 1px dashed rgba(148, 163, 184, 0.4);" onclick="window.location.hash='#/investments'">
+              <div class="asset-header">
+                <div>
+                  <div class="asset-name">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
+                  <div class="asset-type">${ASSET_TYPE_LABELS[a.type] || a.type} · Tracked</div>
+                </div>
+              </div>
+              <div class="asset-value" style="color:#94a3b8;">${formatCurrency(a.currentValue)}</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Shown for tracking only; excluded from wealth.</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- Recent Transactions Section (if enabled) -->
+    ${prefs.transactions !== false ? `
+      <div class="section">
+        <div class="section-header">
+          <h2>Recent Transactions</h2>
+          <a href="#/transactions" class="btn-link">View All →</a>
+        </div>
+        <div class="txn-list" id="recent-txn-list">
+          ${recentTxns.length === 0 ? `
+            <div class="empty-state">
+              <div class="emoji">📝</div>
+              <h3>No transactions yet</h3>
+              <p>Use the fast entry above to record your first transaction, or load sample data to explore reports.</p>
+              <div style="display:flex;gap:var(--sp-2);justify-content:center;margin-top:var(--sp-2);">
+                <button class="btn btn-sm btn-primary" id="home-load-sample">✨ Load Sample Data</button>
+              </div>
+            </div>
+          ` : renderTransactionList(recentTxns, catMap, accMap)}
+        </div>
+      </div>
+    ` : ''}
   `;
 
   await initQuickEntry();
+
+  // Handlers
+  $('#home-customize-btn')?.addEventListener('click', () => showDashboardCustomizationModal());
+  $('#home-switch-user-btn')?.addEventListener('click', () => showUserSwitchModal());
+  $('#home-add-note-btn')?.addEventListener('click', () => showNoteModal());
+
+  // Note delete buttons
+  $$('.delete-note-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.getAttribute('data-id'));
+      if (confirm('Delete this note?')) {
+        await deleteNote(id);
+        showToast('Note deleted', 'info');
+        renderHome(container);
+      }
+    });
+  });
 
   // Add first account handler
   $('#add-first-account')?.addEventListener('click', () => showAccountModal());
 
   // Load sample data handler from home empty state
+  $('#home-load-sample')?.addEventListener('click', async () => {
+    await seedSampleData();
+    showToast('Sample demo data loaded!', 'success');
+    handleRoute();
+  });
   $('#home-load-sample')?.addEventListener('click', async () => {
     await seedSampleData();
     showToast('Sample demo data loaded!', 'success');
@@ -1661,66 +2038,188 @@ async function renderInvestments(container) {
 
 async function showAssetModal(data = {}) {
   const isEdit = !!data.id;
+  const isMetal = data.type === 'gold' || data.type === 'silver';
 
   showModal(`
     <div class="modal-header">
-      <h3>${isEdit ? 'Edit' : 'New'} Asset</h3>
+      <h3>${isEdit ? 'Edit Asset' : '✨ New Asset / Investment'}</h3>
       <button class="modal-close">✕</button>
     </div>
-    <form id="asset-form">
+    <form id="asset-form" style="max-height:75vh;overflow-y:auto;padding-right:4px;">
       <div class="form-group">
         <label>Asset Name</label>
-        <input type="text" id="asset-name" class="form-control" value="${escapeHtml(data.name || '')}" placeholder="e.g., SBI FD, HDFC Mutual Fund" required>
+        <input type="text" id="asset-name" class="form-control" value="${escapeHtml(data.name || '')}" placeholder="e.g., SBI FD, Nippon Nifty 50, 22K Gold Chain" required>
       </div>
-      <div class="form-group">
-        <label>Asset Type</label>
-        <select id="asset-type" class="form-control">
-          ${Object.entries(ASSET_TYPE_LABELS).map(([k, v]) => `<option value="${k}" ${data.type === k ? 'selected' : ''}>${ASSET_TYPE_ICONS[k]} ${v}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Institution / Provider</label>
-        <input type="text" id="asset-institution" class="form-control" value="${escapeHtml(data.institution || '')}" placeholder="e.g., SBI, HDFC, Zerodha">
-      </div>
+
       <div class="form-row">
         <div class="form-group">
-          <label>Invested Amount (₹)</label>
-          <input type="number" id="asset-invested" class="form-control" value="${data.investedAmount || ''}" step="any" min="0">
+          <label>Asset Type</label>
+          <select id="asset-type" class="form-control">
+            ${Object.entries(ASSET_TYPE_LABELS).map(([k, v]) => `<option value="${k}" ${data.type === k ? 'selected' : ''}>${ASSET_TYPE_ICONS[k]} ${v}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Institution / Provider / Jeweller</label>
+          <input type="text" id="asset-institution" class="form-control" value="${escapeHtml(data.institution || '')}" placeholder="e.g., SBI, Zerodha, Tanishq">
+        </div>
+      </div>
+
+      <!-- Dedicated Gold / Silver Inputs (shown when Gold/Silver is selected) -->
+      <div id="metal-fields-container" style="${isMetal ? '' : 'display:none;'}background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.25);border-radius:var(--radius-md);padding:var(--sp-3);margin-bottom:var(--sp-3);">
+        <div style="font-weight:700;color:var(--accent);font-size:var(--fs-sm);margin-bottom:var(--sp-2);">
+          🥇 Precious Metal Valuation Details
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Purity</label>
+            <select id="metal-purity" class="form-control">
+              <option value="24K" ${data.purity === '24K' ? 'selected' : ''}>24K (99.9% Pure)</option>
+              <option value="22K" ${!data.purity || data.purity === '22K' ? 'selected' : ''}>22K (91.67% Standard Jewellery)</option>
+              <option value="20K" ${data.purity === '20K' ? 'selected' : ''}>20K (83.33%)</option>
+              <option value="18K" ${data.purity === '18K' ? 'selected' : ''}>18K (75.0% Diamond Jewellery)</option>
+              <option value="14K" ${data.purity === '14K' ? 'selected' : ''}>14K (58.33%)</option>
+              <option value="999" ${data.purity === '999' ? 'selected' : ''}>999 (Pure Silver)</option>
+              <option value="925" ${data.purity === '925' ? 'selected' : ''}>925 (Sterling Silver)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Weight (Grams)</label>
+            <input type="number" id="metal-weight" class="form-control" value="${data.weightGrams || ''}" step="any" min="0" placeholder="e.g., 10.5">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Rate per Gram at Purchase (₹/g)</label>
+            <input type="number" id="metal-rate-purchase" class="form-control" value="${data.purchaseRatePerGram || ''}" step="any" min="0" placeholder="e.g., 7200">
+          </div>
+          <div class="form-group">
+            <label>Making Charges (₹ - Sunk Cost)</label>
+            <input type="number" id="metal-making-charges" class="form-control" value="${data.makingCharges || ''}" step="any" min="0" placeholder="e.g., 4500">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Total Invested / Purchase Cost (₹)</label>
+          <input type="number" id="asset-invested" class="form-control" value="${data.investedAmount || ''}" step="any" min="0" required>
         </div>
         <div class="form-group">
           <label>Current Value (₹)</label>
-          <input type="number" id="asset-current" class="form-control" value="${data.currentValue || ''}" step="any" min="0">
+          <input type="number" id="asset-current" class="form-control" value="${data.currentValue || ''}" step="any" min="0" required>
         </div>
       </div>
+
+      <!-- Independent Wealth Inclusion Controls -->
+      <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-3);margin:var(--sp-3) 0;">
+        <div style="font-weight:600;font-size:var(--fs-xs);color:var(--text-muted);text-transform:uppercase;margin-bottom:var(--sp-2);">
+          Wealth Inclusion Controls (Strictly Independent)
+        </div>
+        
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-2) 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-weight:600;font-size:var(--fs-sm);">Show on Dashboard</div>
+            <div style="font-size:11px;color:var(--text-muted);">Display card on the Home dashboard</div>
+          </div>
+          <label class="switch-toggle">
+            <input type="checkbox" id="asset-show-dashboard" ${data.showOnDashboard !== 0 ? 'checked' : ''}>
+            <span class="slider-round"></span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-2) 0;">
+          <div>
+            <div style="font-weight:600;font-size:var(--fs-sm);">Include in Total Wealth</div>
+            <div style="font-size:11px;color:var(--text-muted);">
+              Add value to Net Worth. Turn OFF for personal gifts/keepsakes (Tracked Personal Assets).
+            </div>
+          </div>
+          <label class="switch-toggle">
+            <input type="checkbox" id="asset-include-wealth" ${data.includeInWealth !== 0 ? 'checked' : ''}>
+            <span class="slider-round"></span>
+          </label>
+        </div>
+      </div>
+
       <div class="form-row">
         <div class="form-group">
-          <label>Purchase / Start Date</label>
-          <input type="date" id="asset-purchase-date" class="form-control" value="${data.purchaseDate || ''}">
+          <label>Purchase Date</label>
+          <input type="date" id="asset-purchase-date" class="form-control" value="${data.purchaseDate || todayISO()}">
         </div>
         <div class="form-group">
           <label>Valuation Date</label>
           <input type="date" id="asset-val-date" class="form-control" value="${data.lastValuationDate || todayISO()}">
         </div>
       </div>
+
       <div class="form-group">
-        <label>Notes</label>
-        <textarea id="asset-notes" class="form-control" rows="2">${escapeHtml(data.notes || '')}</textarea>
+        <label>Notes & Locker Location</label>
+        <textarea id="asset-notes" class="form-control" rows="2" placeholder="e.g. In bank locker box #4, invoice in folder">${escapeHtml(data.notes || '')}</textarea>
       </div>
-      <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
-        <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Add Asset'}</button>
+
+      <div class="form-actions" style="margin-top:var(--sp-3);display:flex;justify-content:flex-end;gap:var(--sp-2);">
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Update Asset' : 'Add Asset'}</button>
       </div>
     </form>
   `);
 
+  // Type change listener to show/hide metal inputs
+  $('#asset-type').addEventListener('change', (e) => {
+    const val = e.target.value;
+    const isM = val === 'gold' || val === 'silver';
+    $('#metal-fields-container').style.display = isM ? 'block' : 'none';
+  });
+
+  // Auto-calculate metal current value if weight & rates change
+  function syncMetalCalc() {
+    const weight = parseFloat($('#metal-weight').value) || 0;
+    const purchaseRate = parseFloat($('#metal-rate-purchase').value) || 0;
+    const making = parseFloat($('#metal-making-charges').value) || 0;
+    const purity = $('#metal-purity').value;
+    const type = $('#asset-type').value;
+
+    if (weight > 0 && purchaseRate > 0) {
+      const purchaseMetalVal = weight * purchaseRate;
+      const totalInvested = purchaseMetalVal + making;
+      if (!$('#asset-invested').value || !isEdit) {
+        $('#asset-invested').value = totalInvested;
+      }
+      // Estimate current resale value using purity
+      const purityFactors = { '24K': 1.0, '22K': 0.9167, '20K': 0.8333, '18K': 0.75, '14K': 0.5833, '999': 0.999, '925': 0.925 };
+      const factor = purityFactors[purity] || 0.9167;
+      // Default to current market rate fallback or purchase rate * purity
+      const currentVal = Math.round(weight * purchaseRate * factor);
+      if (!$('#asset-current').value || !isEdit) {
+        $('#asset-current').value = currentVal;
+      }
+    }
+  }
+
+  $('#metal-weight')?.addEventListener('input', syncMetalCalc);
+  $('#metal-rate-purchase')?.addEventListener('input', syncMetalCalc);
+  $('#metal-making-charges')?.addEventListener('input', syncMetalCalc);
+  $('#metal-purity')?.addEventListener('change', syncMetalCalc);
+
   $('#asset-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const type = $('#asset-type').value;
+    const isM = type === 'gold' || type === 'silver';
+
     const assetData = {
       name: $('#asset-name').value.trim(),
-      type: $('#asset-type').value,
+      type,
+      category: isM ? 'physical' : 'financial',
+      isPhysical: isM ? 1 : 0,
       institution: $('#asset-institution').value.trim(),
       investedAmount: parseFloat($('#asset-invested').value) || 0,
       currentValue: parseFloat($('#asset-current').value) || 0,
+      showOnDashboard: $('#asset-show-dashboard').checked ? 1 : 0,
+      includeInWealth: $('#asset-include-wealth').checked ? 1 : 0,
+      purity: isM ? $('#metal-purity').value : null,
+      weightGrams: isM ? parseFloat($('#metal-weight').value) || null : null,
+      purchaseRatePerGram: isM ? parseFloat($('#metal-rate-purchase').value) || null : null,
+      makingCharges: isM ? parseFloat($('#metal-making-charges').value) || 0 : 0,
       purchaseDate: $('#asset-purchase-date').value,
       lastValuationDate: $('#asset-val-date').value || todayISO(),
       notes: $('#asset-notes').value.trim(),
@@ -1737,7 +2236,7 @@ async function showAssetModal(data = {}) {
         showToast('Asset updated!', 'success');
       } else {
         await createAsset(assetData);
-        showToast('Asset added!', 'success');
+        showToast('Asset saved!', 'success');
       }
       closeModal();
       handleRoute();
@@ -3527,6 +4026,16 @@ async function init() {
       document.documentElement.setAttribute('data-theme', next);
       await setSetting('theme', next);
     });
+  });
+
+  // Update user display initially
+  await updateUserDisplay();
+
+  // User Switcher triggers
+  $('#user-switcher-btn')?.addEventListener('click', () => showUserSwitchModal());
+  $('#mobile-user-switch-btn')?.addEventListener('click', () => showUserSwitchModal());
+  $('#mobile-profile-trigger')?.addEventListener('click', () => {
+    $('#manifestation-screen')?.classList.remove('entered');
   });
 
   // Route handler

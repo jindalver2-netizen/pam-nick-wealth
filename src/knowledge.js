@@ -1,240 +1,227 @@
 /**
- * Wealthbook / Nick Wealth OS — Financial Education Knowledge Base
- * Based on RBI, SEBI, AMFI, and IRDAI principles.
- * 8 Beginner-Friendly Guides + 2 Guided Action Journeys.
+ * Pam&Nick Wealth / Wealthbook Lite — Financial Education Knowledge Base
+ * Natural Conversational Hinglish for Everyday Users & Families.
+ * Based on RBI, SEBI, AMFI, NISM, PFRDA, and IRDAI principles.
  */
 
 export const KNOWLEDGE_GUIDES = [
   {
     id: 'guide-1',
     number: '01',
-    title: 'Understand Your Money',
-    subtitle: 'The 5 Core Pillars: Income, Expenses, Assets, Liabilities & Net Worth',
-    readTime: '4 min read',
+    title: 'Apne Paise Ko Samajhna',
+    subtitle: 'Income, Kharcha, Assets, Liabilities aur Net Worth ka aasan hisab',
+    readTime: '3 min read',
     icon: '🏛️',
     tag: 'Foundation',
-    summary: 'Before growing wealth, you must know where every rupee stands. Learn how cashflow and net worth work together.',
+    summary: 'Ameer banne se pehle yeh janna zaroori hai ki aapka har ek rupaya kahan se aata hai aur kahan jaata hai.',
     content: `
-### The 5 Pillars of Wealth
-1. **Income (Inflow):** Money earned from salary, freelancing, business, or interest. Wealthy individuals focus on turning active income into passive cashflow.
-2. **Expenses (Outflow):** Money spent to live and enjoy life. Group expenses into *Essential Needs* (groceries, rent, bills) and *Discretionary Wants* (dining out, entertainment).
-3. **Assets (Money Makers):** Things you own that put money into your pocket or appreciate over time (Bank FDs, PPF, Mutual Funds, Stocks, Real Estate, Gold).
-4. **Liabilities (Money Drainers):** Money you owe to lenders or individuals (Credit Card dues, Personal Loans, Car EMIs, Home Loans).
-5. **Net Worth (The True Scorecard):**
+### Paisa Manage Karne Ke 5 Pillars
+1. **Income (Kamai):** Wo paisa jo aapki salary, business, freelancing ya interest se aata hai. Ameer log apni active kamai ko assets mein badalte hain.
+2. **Expenses (Kharcha):** Wo paisa jo aap jeene aur enjoy karne ke liye kharch karte hain. Do types hote hain:
+   - *Needs (Zaroorat):* Ration, makaan kiraya, bijli/paani bill, medicines.
+   - *Wants (Shauk):* Bahar ka khana, movies, shopping, mehenge kapde.
+3. **Assets (Paisa Banane Wale):** Wo cheezein jo aapki jeb mein paisa daalti hain ya samay ke sath kimat badhti hai (Bank FD, PPF, Mutual Funds, Sona, Zameen).
+4. **Liabilities (Paisa Kheenchne Wale):** Wo udhari jo aapko wapas karni hai (Credit Card bill, Personal Loan, Car EMI, Hand Loan).
+5. **Net Worth (Aapki Asli Daulat):**
    $$\\text{Net Worth} = \\text{Total Assets} - \\text{Total Liabilities}$$
 
-### The Indian Perspective
-In India, many confuse "possessions" with "assets". A car that loses 15% value every year and requires fuel and maintenance is a depreciating utility, not a wealth-building asset. Your real wealth is what survives if you stop working tomorrow.
+### Indian Reality Check
+Hazaaro log gaadi ya mehenge phone ko asset samajhte hain. Gaadi showroom se nikalte hi 15% sasti ho jaati hai aur petrol maangti hai — ye ek utility hai, asset nahi. Asli daulat wo hai jo bina kaam kiye bhi aapka sath de.
 
-### Action Checklist
-- [ ] List all your bank accounts and cash in Wealthbook.
-- [ ] Add all your investments (PPF, Mutual Funds, FDs, Gold).
-- [ ] Add all pending loans or borrowed money in the Liabilities section.
-- [ ] Check your real Net Worth on the Investments dashboard.
+### Aaj Ka Action Step
+- [ ] Pam&Nick Wealth mein apne saare bank accounts aur cashbox add karein.
+- [ ] Apna sona (gold) aur investments enter karein.
+- [ ] Dekhein ki aapki asli Net Worth kitni hai!
     `
   },
   {
     id: 'guide-2',
     number: '02',
-    title: 'Manage Your Monthly Salary',
-    subtitle: 'The 50 / 30 / 20 Rule Adapted for Indian Realities',
-    readTime: '5 min read',
+    title: 'Monthly Budget Kaise Banana Hai',
+    subtitle: '50 / 30 / 20 Rule — Salary aate hi pehle khud ko pay karein',
+    readTime: '4 min read',
     icon: '📊',
     tag: 'Budgeting',
-    summary: 'A simple, stress-free formula to allocate your paycheck every month so you never run out of cash before month-end.',
+    summary: 'Ek aasan rule jisse mahine ki 25 tareekh ko kabhi jeb khali na ho.',
     content: `
-### The 50 / 30 / 20 Framework
-When your salary lands in your bank account, divide it into three distinct buckets:
+### 50 / 30 / 20 Ka Simple Formula
+Jab bhi salary ya business ka paisa aaye, use teen hisson mein baant dein:
 
-* **50% for Needs (Roti, Kapda, Makaan & Bills):**
-  - House rent / Home maintenance
-  - Groceries & household supplies
-  - Electricity, Water, WiFi & Mobile recharge
-  - Commute & petrol
-  - Health insurance premiums & essential medicines
+* **50% Zaroorat (Roti, Kapda, Makaan aur Bills):**
+  - Ghar ka kiraya / Society maintenance
+  - Mahine ka ration aur sabzi
+  - Bijli, Wi-Fi, Gas cylinder aur mobile recharge
+  - Petrol aur aana-jaana
+  - Zaroori dawaiyan aur health insurance
 
-* **30% for Wants (Lifestyle & Enjoyment):**
-  - Dining out, Zomato/Swiggy orders
-  - Weekend trips & movies
-  - Streaming subscriptions (Netflix, Spotify)
-  - Shopping, apparel & gadgets
+* **30% Shauk (Lifestyle aur Khushiyan):**
+  - Weekend dinner, Swiggy / Zomato
+  - OTT subscriptions (Netflix, Prime, Hotstar)
+  - Shopping, naye gadgets ya weekend outing
 
-* **20% for Savings & Wealth Building (Pay Yourself First!):**
-  - Emergency fund contributions
-  - Mutual Fund SIPs (AMFI recommended)
-  - PPF, EPF & NPS deposits
-  - Debt prepayment
+* **20% Future Ki Bachat (Pay Yourself First!):**
+  - Emergency Fund ka paisa
+  - Mutual Fund SIP (AMFI verified)
+  - PPF ya Gold mein bachat
 
-### The Golden Rule: Pay Yourself First
-Most people follow: *Income - Expenses = Savings (often ₹0).*
-Wealthy people follow: **Income - Savings (20%) = Expenses.**
-The day salary arrives, automate your SIPs and emergency fund transfers first. Live abundantly on whatever remains.
+### The Golden Secret: Pehle Bachat, Fir Kharcha
+Aam log sochte hain: *Salary - Kharcha = Bachat (jo zero bachti hai).*
+Smart log follow karte hain: **Salary - 20% Bachat = Baaki ka Kharcha.**
+Pehle din hi bachat alag account mein daal dein, fir bache hue paise se aaraam se bina tension ke jiyein!
     `
   },
   {
     id: 'guide-3',
     number: '03',
-    title: 'Build Your Emergency Fund',
-    subtitle: 'Your Financial Shield Against Life\'s Unexpected Storms',
+    title: 'Emergency Fund Kaise Banana Hai',
+    subtitle: 'Musibat ke samay ka sabse bada suraksha kavach',
     readTime: '4 min read',
     icon: '🛡️',
     tag: 'Safety',
-    summary: 'Why an emergency fund is your top priority before investing in stocks or buying luxury items, and exactly where to park it.',
+    summary: 'Share market ya sona lene se pehle 3-6 mahine ka kharcha alag rakhna kyu sabse pehla farz hai.',
     content: `
-### What is an Emergency Fund?
-An emergency fund is 3 to 6 months of mandatory living expenses kept safely aside. It protects you against:
-- Sudden job loss or salary delays
-- Urgent family medical crises
-- Emergency home or vehicle repairs
+### Emergency Fund Kya Hota Hai?
+Agar kal ko achanak job chali jaye, bimari aa jaye ya koi bada repair nikal aaye, toh kisi se udhar na mangna pade — isi ko Emergency Fund kehte hain.
 
-### How Much Do You Need?
-If your monthly mandatory expenses (rent + groceries + bills + EMIs) are ₹30,000:
-- **Minimum Target (3 Months):** ₹90,000
-- **Safe Target (6 Months):** ₹1,80,000
+### Kitna Paisa Chahiye?
+Aapka mahine ka zaroori kharcha agar ₹25,000 hai:
+- **Minimum Target (3 Mahine):** ₹75,000
+- **Safe Target (6 Mahine):** ₹1,50,000
 
-### Where to Keep It (The 3 Criteria: Safety, Liquidity, Access)
-Never invest emergency money in volatile equity or locked-in real estate!
-1. **Auto Sweep-in Fixed Deposit:** Linked to your primary savings bank. Earns FD rates (~6.5-7.5%) but allows instant withdrawal via UPI or ATM anytime.
-2. **High-Yield Savings Account / Separate Bank:** Keep it in a separate bank (e.g. SBI or HDFC) so you don't spend it casually via UPI apps.
-3. **Overnight or Liquid Mutual Funds:** Regulated by SEBI, virtually zero credit risk, T+1 day withdrawal.
+### Is Paise Ko Kahan Rakhein?
+Is paise par laalach nahi karna hai, safety aur turant nikalna zaroori hai:
+1. **Auto Sweep-in Savings Account:** Normal savings account se link FD jo 6.5-7% interest deti hai par UPI se turant nikal aati hai.
+2. **Alag Bank Account:** Jiska UPI phone mein na ho, taaki galti se Swiggy ya Amazon par kharch na ho jaye!
+3. **Liquid Mutual Fund:** SEBI regulated, zero share market risk, 24 ghante mein account mein wapas.
     `
   },
   {
     id: 'guide-4',
     number: '04',
-    title: 'Control Unnecessary Spending',
-    subtitle: 'How to Plug UPI Micro-Leakage & Master the 48-Hour Rule',
-    readTime: '4 min read',
+    title: 'Unnecessary Expenses Kaise Kam Karein',
+    subtitle: 'UPI micro-leakage rokne ka tareeka aur 48-Hour Rule',
+    readTime: '3 min read',
     icon: '✂️',
     tag: 'Cashflow',
-    summary: 'UPI made spending frictionless. Here is how to stop small ₹50, ₹100, and ₹500 transactions from draining your wealth.',
+    summary: 'Chhote chhote ₹50, ₹100 ke scans kaise saal mein ₹50,000 gayab kar dete hain.',
     content: `
-### The Silent Wealth Drain: UPI Micro-Transactions
-Scanning a QR code feels painless because no physical cash leaves your hand. Ten ₹150 snacks, cab rides, and online deliveries per week equal ₹6,000/month or **₹72,000/year** vanished into thin air.
+### UPI Ki Silent Chori (Micro-Leakage)
+QR code scan karna itna aasan hai ki jeb se note nikalne ka dard nahi hota. Din mein 2 baar ₹80 ki chai-snack aur 2 baar ₹150 ka online order matlab mahine ka ₹10,000 gayab, yaani saal ka **₹1,20,000!**
 
-### 3 Rules to Regain Control
+### 3 Golden Rules
 1. **The 48-Hour Rule:**
-   Whenever you feel the urge to buy a non-essential item online (gadget, shoes, clothes), wait 48 hours. In 80% of cases, the dopamine rush fades and you won't buy it.
-2. **The "Two Bank Accounts" Strategy:**
-   - **Account A (Income & Bills):** Where salary lands. No UPI app linked on your phone.
-   - **Account B (Spending Wallet):** Transfer a fixed monthly allowance (e.g. ₹10,000). Link UPI only to this account. When balance hits ₹0, spending stops!
-3. **Log Every Expense in Wealthbook Immediately:**
-   Use Quick Entry or Voice ("Aaj 120 chai aur snacks cash diye"). Building awareness is 90% of discipline.
+   Jab bhi koi shauk ki cheez online pasand aaye (shoes, bag, watch), use turant mat khareedo. Cart mein daal kar 48 ghante intezar karein. 80% cases mein mann shant ho jata hai.
+2. **Do Accounts Rakhein:**
+   - Account A: Jisme salary aati hai (No UPI on phone).
+   - Account B: Spending account jisme mahine ke shauk ke liye bas ₹8,000 transfer kiye. Balance khatam toh kharcha band.
+3. **Har Kharcha Pam&Nick Wealth Mein Log Karein:**
+   Voice se bole: *"Aaj 150 rupaye fruit cash diye"*. Jaise hi hisab dikhta hai, dimag apne aap alert ho jata hai.
     `
   },
   {
     id: 'guide-5',
     number: '05',
-    title: 'Get Out of Debt Fast',
-    subtitle: 'Debt Snowball vs Debt Avalanche for Indian Borrowers',
-    readTime: '6 min read',
+    title: 'Loans Aur Debt Ko Kaise Manage Karein',
+    subtitle: 'Credit Card trap se nikalne ka Snowball aur Avalanche tareeka',
+    readTime: '5 min read',
     icon: '⛓️',
     tag: 'Debt Freedom',
-    summary: 'Break free from high-interest debt traps. Learn how to eliminate credit card balances and personal loans step-by-step.',
+    summary: 'Credit card ka Minimum Due sabse bada legal trap hai. Jaaniye karz se aazad hone ke secret steps.',
     content: `
-### Good Debt vs Bad Debt
-- **Bad Debt:** Credit card rollover balance (36% to 42% interest p.a.), personal loans (13-18%), payday apps. Destroys your financial future.
-- **Manageable Debt:** Low-cost home loans (8.5% p.a.) backed by an appreciating asset with tax benefits.
+### Achha Karz vs Bura Karz
+- **Bura Karz (Zahar):** Credit card rollover (36% se 42% saal ka byaj!), personal loans (14-18%), mobile EMI. Ye future ko barbad karta hai.
+- **Manageable Karz:** Home loan (8.5% rate) jisme makan ki kimat badhti hai aur tax benefit milta hai.
 
-### The Two Proven Strategies
-1. **The Debt Avalanche (Mathematically Superior):**
-   - List all debts sorted by **highest interest rate first** (e.g., Credit Card @ 40%, Personal loan @ 14%, Car loan @ 9%).
-   - Pay minimum dues on all loans.
-   - Throw every spare rupee at the highest interest debt until it is completely wiped out.
-   - Saves the maximum money on interest!
+### Karz Khatam Karne Ke 2 Proven Tareeqe
+1. **Debt Avalanche Method (Gaanth baandh lijiye):**
+   - Sabse mehenge byaj wale loan ko pehle khatam karein (Credit card @ 40% first, fir personal loan @ 15%, fir car loan).
+   - Byaj ka sabse zyada paisa bachta hai!
+2. **Debt Snowball Method (Himmat badhane ke liye):**
+   - Sabse chhote loan ko pehle pura chuka kar khatam karein, chahe byaj kuch bhi ho.
+   - Ek ek loan khatam hone par khushi milti hai aur confidence badhta hai.
 
-2. **The Debt Snowball (Psychologically Motivating):**
-   - List debts sorted by **smallest outstanding balance first** regardless of interest rate.
-   - Pay off the smallest debt as fast as possible.
-   - Celebrate the win and roll that payment into the next smallest debt.
-   - Builds unstoppable momentum!
-
-### Critical Rule for Credit Cards
-Always pay the **"Total Amount Due"**, NEVER just the "Minimum Amount Due". The minimum due is a legal trap designed to keep you paying interest for decades.
+### Ek Zaroori Rule
+Credit card ka hamesha **"Total Amount Due"** pay karein. "Minimum Due" kabhi na bharein — wo 15 saal tak aapko byaj me bandhe rakhne ka rasta hai.
     `
   },
   {
     id: 'guide-6',
     number: '06',
-    title: 'Start Saving & Investing',
-    subtitle: 'Beat Inflation with Compounding, PPF, and Equity SIPs',
-    readTime: '5 min read',
+    title: 'Saving Aur Investing Mein Kya Difference Hai',
+    subtitle: 'Mehangai (Inflation) ko harana aur Compounding ka jaadu',
+    readTime: '4 min read',
     icon: '📈',
     tag: 'Investing',
-    summary: 'Leaving money idle in a savings account loses value every year due to inflation. Learn the building blocks of investing.',
+    summary: 'Bank ke savings account mein paisa pada rehna asliyat mein ghata deta hai. Jaaniye kyu.',
     content: `
-### Inflation: The Invisible Thief
-In India, inflation averages 5% to 7% per year. A cup of coffee that cost ₹20 five years ago costs ₹35 today.
-If your bank savings account gives 3% interest, your real purchasing power shrinks every year.
+### Mehangai (Inflation): Chhupa Hua Chor
+Har saal cheezein 6% se 7% mehengi hoti hain. Jo petrol 5 saal pehle ₹70 tha wo aaj ₹100 hai.
+Agar bank savings account mein bas 3% interest mil raha hai, toh har saal aapke paise ki taqat 3-4% kam ho rahi hai!
 
-### The Power of Compounding (Albert Einstein's 8th Wonder)
-If you invest ₹5,000 every month in a Nifty 50 Index Mutual Fund compounding at 12% p.a.:
-- In 10 Years: Invested ₹6 Lakh $\\rightarrow$ Grows to **₹11.6 Lakh**
-- In 20 Years: Invested ₹12 Lakh $\\rightarrow$ Grows to **₹50.0 Lakh**
-- In 30 Years: Invested ₹18 Lakh $\\rightarrow$ Grows to **₹1.76 Crore!**
+### Compounding Ka Chamatkar
+Agar aap har mahine ₹5,000 kisi achhe Index Mutual Fund (Nifty 50) mein invest karte hain jo 12% saal ka return deta hai:
+- **10 Saal Baad:** Lagaya ₹6 Lakh $\\rightarrow$ Ban gaya **₹11.6 Lakh**
+- **20 Saal Baad:** Lagaya ₹12 Lakh $\\rightarrow$ Ban gaya **₹50 Lakh**
+- **30 Saal Baad:** Lagaya ₹18 Lakh $\\rightarrow$ Ban gaya **₹1.76 Crore!**
 
-### The Core Indian Investment Vehicles
-1. **Public Provident Fund (PPF):** Government-backed, 7.1% tax-free interest under EEE (Exempt-Exempt-Exempt) regime. Zero risk.
-2. **Equity Index Mutual Funds (Nifty 50 / Sensex):** Owns India's top 50 corporate giants (TCS, Reliance, HDFC, Infosys). Low cost, ideal for 7+ year horizon.
-3. **Sovereign Gold Bonds (SGB) / Digital Gold:** Hedge against currency depreciation and global turmoil.
-4. **Fixed Deposits (FDs):** Great for short-term goals (<3 years), guaranteed safety up to ₹5 Lakh under DICGC.
+### Safe Indian Options
+1. **Public Provident Fund (PPF):** 100% sarkari guarantee, 7.1% tax-free interest. Zero risk.
+2. **Nifty 50 Index Fund:** Bharat ki top 50 companiyo (TCS, Reliance, HDFC) ke share. Long term ke liye best.
+3. **Physical Sona (24K/22K) ya Digital Gold:** Mehangai se ladne ka sadiyon purana bharosa.
     `
   },
   {
     id: 'guide-7',
     number: '07',
-    title: 'Protect Your Financial Life',
-    subtitle: 'Term Insurance, Health Insurance & Cyber Safety',
-    readTime: '5 min read',
+    title: 'Financial Safety Aur Insurance Basics',
+    subtitle: 'Pure Term Insurance aur Health Cover — kabhi investment aur insurance ko mix na karein',
+    readTime: '4 min read',
     icon: '🛡️',
     tag: 'Protection',
-    summary: 'A single hospital bill can wipe out years of hard-earned savings. Understand real insurance vs misleading investment plans.',
+    summary: 'Ek hospital ka bill saalon ki bachat khatam kar sakta hai. Jaaniye sahi insurance lene ka niyam.',
     content: `
-### The Golden Rule of Insurance: Never Mix Investment & Insurance
-Avoid traditional Endowment or Money-Back policies (LIC traditional plans) that offer poor life cover and meager 4-5% returns.
-Keep insurance for pure protection, and mutual funds/PPF for pure wealth creation.
+### Sabse Bada Niyam: Insurance Ko Investment Mat Banayein
+LIC ke traditional endowment ya money-back plans jisme bas 4-5% return milta hai aur cover sirf 2-3 lakh hota hai, unse bachein.
+Insurance bas suraksha ke liye hai, bachat ke liye Mutual Fund aur PPF hain.
 
-### The 2 Essential Policies Every Indian Needs
+### Har Parivar Ke Liye 2 Zaroori Policy
 1. **Pure Term Life Insurance:**
-   - If family or dependents rely on your income.
-   - Rule of thumb: Sum insured must be **15 to 20 times your annual income**.
-   - Example: If you earn ₹8 Lakh/year, take a ₹1.5 Crore term plan. Premiums are low when bought young (~₹800 to ₹1,200/month).
-2. **Comprehensive Health Insurance:**
-   - Hospital costs rise 12-14% yearly. Corporate group cover is insufficient if you change jobs or retire.
-   - Maintain a personal base policy of ₹5 Lakh to ₹10 Lakh plus a super top-up policy of ₹25 Lakh+.
-   - Add your policy in the Wealthbook Insurance section with renewal dates!
+   - Agar aap par koi dependent hai (patni, bachhe, maa-baap).
+   - Cover saal ki income ka 15-20 guna hona chahiye (Example: ₹6 Lakh salary par ₹1 Crore ka cover jo mahine mein bas ₹800-₹1000 mein aata hai).
+2. **Family Health Insurance (Mediclaim):**
+   - Kisi bimari ke hospital bill se bachaata hai. Minimum ₹10 Lakh ka base cover ya super top-up lein.
 
-### Digital Fraud Protection
-- Never share OTPs, UPI PINs, or CVVs.
-- Remember: **You never need to enter a UPI PIN to RECEIVE money.** If anyone asks for a PIN to send you money, it is 100% a scam.
+### Cyber Fraud Se Bachav
+- Kabhi kisi ko OTP ya UPI PIN na dein.
+- **Yaad rakhein: Kisi se paisa lene ke liye kabhi PIN nahi daalna padta!** Agar koi bole *"Paisa aayega bas PIN daalo"*, wo 100% scam hai.
     `
   },
   {
     id: 'guide-8',
     number: '08',
-    title: 'Plan Your Future & Goals',
-    subtitle: 'Goal-Based Financial Planning: 1-Year, 5-Year & 10-Year Horizons',
+    title: 'Future Ke Financial Goals Kaise Plan Karein',
+    subtitle: '1 Saal, 5 Saal aur 10 Saal ke sapno ka aasan roadmap',
     readTime: '4 min read',
     icon: '🎯',
     tag: 'Future Planning',
-    summary: 'Turn vague dreams into concrete numbers. Map your goals to the right investment instruments based on time horizon.',
+    summary: 'Sapno ko tareekh aur number dein taaki wo haqeeqat ban sakein.',
     content: `
-### How to Map Goals to Time Horizons
-Every financial goal has a timeline. The golden rule is: **Shorter the timeline, safer the instrument.**
+### Sahi Goal Ko Sahi Jagah Lagayein
+Golden Rule: **Jitna kam samay, utna safe instrument.**
 
-1. **Short-Term Goals (0 to 2 Years):**
-   - Examples: Vacation, emergency fund, buying a laptop, next year's car insurance.
-   - Recommended Instruments: High-yield savings, Recurring Deposits (RD), Short-duration or Liquid Mutual Funds.
-   - Never put short-term money in equities!
+1. **Short-Term Goals (0 se 2 Saal):**
+   - Sapne: Chhutti par jaana, laptop lena, bike lena, emergency fund.
+   - Kahan rakhein: Bank FD, Recurring Deposit (RD) ya Liquid Fund.
+   - *Inhe share market mein bilkul na lagayein!*
 
-2. **Medium-Term Goals (3 to 7 Years):**
-   - Examples: Down payment for home, car purchase, wedding.
-   - Recommended Instruments: Balanced Advantage Funds, Multi-Asset Allocation Funds, Corporate FDs.
+2. **Medium-Term Goals (3 se 7 Saal):**
+   - Sapne: Makaan ki down payment, shaadi ka kharcha, car.
+   - Kahan rakhein: Balanced Advantage Mutual Funds, Multi-Asset Funds, Gold.
 
-3. **Long-Term Goals (7+ Years):**
-   - Examples: Child's higher education, retirement freedom, financial independence.
-   - Recommended Instruments: Nifty 50 Index Funds, Flexicap Equity Funds, PPF, NPS.
-   - Time smoothes out market volatility and unleashes compounding power.
+3. **Long-Term Goals (7 Saal Se Zyada):**
+   - Sapne: Bachho ki padhai, retirement ka sukoon, azaadi.
+   - Kahan rakhein: Nifty 50 Index Mutual Funds, PPF, NPS.
+   - Lambe samay mein market ka utaar-chadhaw shant ho jata hai aur wealth kai guna ho jaati hai!
     `
   }
 ];
@@ -242,46 +229,46 @@ Every financial goal has a timeline. The golden rule is: **Shorter the timeline,
 export const LEARNING_JOURNEYS = [
   {
     id: 'journey-7days',
-    title: 'Your First 7 Days with Money',
-    subtitle: 'A simple 7-day kickstart to gain total clarity over your cashflow',
+    title: 'First 7 Days Money Management Challenge',
+    subtitle: '7 din mein apne saare accounts aur cashflow par 100% control payein',
     duration: '7 Days',
     icon: '🚀',
     steps: [
-      { day: 1, title: 'Map All Your Accounts', task: 'Add all your bank accounts, wallets, and cash boxes into Wealthbook with current balances.' },
-      { day: 2, title: 'Check Your Subscriptions', task: 'List all recurring subscriptions (Netflix, Prime, Gym, WiFi). Cancel at least one unused service.' },
-      { day: 3, title: 'Log 100% of Today\'s Spending', task: 'Use Quick Entry or Voice to log every single rupee spent today in real-time.' },
-      { day: 4, title: 'Calculate Your Monthly Survival Cost', task: 'Sum up your absolute must-have monthly expenses: Rent, Food, Utilities, EMIs.' },
-      { day: 5, title: 'Inspect Your Debts & Loans', task: 'Add all your loans or credit card balances into the Liabilities section with EMI dates.' },
-      { day: 6, title: 'Define Your Emergency Fund Goal', task: 'Multiply your Day 4 survival cost by 3. This is your initial emergency shield target.' },
-      { day: 7, title: 'Review Your First Weekly Statement', task: 'Open Reports in Wealthbook, see where your money flowed, and set next week\'s budget!' }
+      { day: 1, title: 'Saare Accounts Likhein', task: 'Pam&Nick Wealth mein apna Cashbox, SBI, HDFC, PhonePe sabhi account unke current balance ke sath add karein.' },
+      { day: 2, title: 'Subscriptions Ki Chhan-Been', task: 'Transactions mein Subscriptions tab kholiye. Netflix, Gym, Wi-Fi sab add karein aur kam se kam 1 bekar subscription cancel karein.' },
+      { day: 3, title: 'Aaj Ka 100% Kharcha Note Karein', task: 'Subah se raat tak ka har ek rupaya (chai, ration, petrol) Quick Entry ya Voice se turant record karein.' },
+      { day: 4, title: 'Survival Cost Calculate Karein', task: 'Mahine ke wo kharche jinke bina guzaara nahi ho sakta (Kiraya + Ration + Bijli + EMI) ka total hisab dekhein.' },
+      { day: 5, title: 'Sona Aur Assets Add Karein', task: 'Investments mein Gold & Silver form kholiye. Apni gold jewellery ya coins add karein aur live market value dekhein!' },
+      { day: 6, title: 'Emergency Fund Target Tay Karein', task: 'Apne Day 4 ke survival cost ko 3 se multiply karein. Ye aapka Emergency Fund ka pehla lakshya hai.' },
+      { day: 7, title: 'Pehli Weekly Statement Dekhein', task: 'Reports tab kholiye, dekhein paisa kahan gaya, aur agle hafte ke liye tay karein ki kahan bachat karni hai!' }
     ]
   },
   {
     id: 'journey-30days',
-    title: '30 Days of Better Money Management',
-    subtitle: 'A 4-week transformation blueprint to eliminate financial anxiety',
+    title: 'First 30 Days Better Money Habits Plan',
+    subtitle: '4 hafton ka transformation plan jo financial stress ko hamesha ke liye mita dega',
     duration: '30 Days',
     icon: '🏆',
     steps: [
       {
         week: 'Week 1',
-        title: 'Audit & Awareness',
-        description: 'Track every single transaction without judgment. Identify subconscious money leaks and recurring bank charges.'
+        title: 'Audit Aur Jagrukta (Awareness)',
+        description: 'Bina kisi sharm ke har transaction note karein. Dekhein ki chhote-chhote UPI kharche kahan paisa baha rahe hain.'
       },
       {
         week: 'Week 2',
-        title: 'Build the Fortress',
-        description: 'Set up an emergency sweep account. Verify that health insurance and term life insurance are active and adequate.'
+        title: 'Suraksha Kavach (The Fortress)',
+        description: 'Alag account mein Emergency Fund ki shuruat karein. Check karein ki parivar ka Health Insurance aur Term Cover active hai.'
       },
       {
         week: 'Week 3',
-        title: 'Debt Attack & Expense Trim',
-        description: 'Implement the Debt Avalanche or Snowball method. Negotiate interest rates or prepay high-interest credit card debt.'
+        title: 'Karz Par Hamla (Debt Attack)',
+        description: 'Credit Card ke saare baki bills ko Snowball ya Avalanche method se khatam karne ka action plan banayein.'
       },
       {
         week: 'Week 4',
-        title: 'Automate Wealth Creation',
-        description: 'Set up automatic monthly Mutual Fund SIPs aligned with your 5-year and 10-year goals. Celebrate your mastery!'
+        title: 'Automatic Daulat (Wealth Automation)',
+        description: 'Apne 5-saal aur 10-saal ke lakshya ke liye ek chhota sa monthly Index Fund SIP start karein. Apni financial azaadi celebrate karein!'
       }
     ]
   }

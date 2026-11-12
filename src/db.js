@@ -1,10 +1,11 @@
 /**
- * DhanRakshak — Database Layer
- * Uses Dexie.js (IndexedDB wrapper) for offline-first local storage.
+ * Pam&Nick Wealth / Wealthbook Lite — Database Layer
+ * Multi-user, multi-tenant IndexedDB storage via Dexie.js.
+ * Centralized wealth engine, physical assets & smart gold/silver valuation.
  */
 import Dexie from 'dexie';
 
-export const db = new Dexie('DhanRakshakDB');
+export const db = new Dexie('PamAndNickWealthDB');
 
 db.version(1).stores({
   accounts:         '++id, name, type, isActive, sortOrder',
@@ -34,7 +35,153 @@ db.version(2).stores({
   insurancePolicies:    '++id, provider, policyName, policyType, policyNumber, premiumAmount, paymentFrequency, nextRenewalDate, sumInsured, status'
 });
 
-// ── Default Data Seeding ──────────────────────────────────────────────
+db.version(3).stores({
+  users:                '++id, username, email, role, status, pin',
+  accounts:             '++id, userId, name, type, isActive, sortOrder',
+  transactions:         '++id, userId, type, date, categoryId, accountId, toAccountId, isDeleted, referenceId, referenceType',
+  categories:           '++id, userId, name, type, sortOrder',
+  assets:               '++id, userId, name, category, type, isPhysical, includeInWealth, showOnDashboard, valuationStatus, purchaseDate',
+  valuations:           '++id, userId, assetId, date, valuationType',
+  snapshots:            '++id, userId, date',
+  snapshotBalances:     '++id, snapshotId, accountId',
+  settings:             'key',
+  lendBorrow:           '++id, userId, type, personName, amount, outstandingAmount, date, accountId, status',
+  lendBorrowRepayments: '++id, userId, lendBorrowId, amount, date, accountId',
+  liabilities:          '++id, userId, lenderName, type, originalAmount, currentOutstanding, interestRate, emiAmount, nextDueDate, status',
+  liabilityRepayments:  '++id, userId, liabilityId, amount, principalPaid, interestPaid, date, accountId',
+  subscriptions:        '++id, userId, name, company, amount, billingFrequency, nextDueDate, accountId, status, autoRenewal',
+  insurancePolicies:    '++id, userId, provider, policyName, policyType, policyNumber, premiumAmount, paymentFrequency, nextRenewalDate, sumInsured, status',
+  notes:                '++id, userId, title, date, showOnDashboard, isPinned, linkedAssetId, linkedAccountId',
+  auditLogs:            '++id, userId, action, details, timestamp',
+  userPreferences:      '++id, userId, key'
+});
+
+// ── Multi-User Session Management ─────────────────────────────────────
+
+export function getActiveUserId() {
+  const stored = localStorage.getItem('wealth_active_user_id');
+  return stored ? parseInt(stored, 10) : 1; // Default to User 1 (Pam)
+}
+
+export function setActiveUserId(id) {
+  localStorage.setItem('wealth_active_user_id', String(id));
+}
+
+export async function getCurrentUser() {
+  const uid = getActiveUserId();
+  const user = await db.users.get(uid);
+  if (user) return user;
+  // Fallback to first user
+  const first = await db.users.toCollection().first();
+  if (first) {
+    setActiveUserId(first.id);
+    return first;
+  }
+  return { id: 1, username: 'pam', name: 'Pam (Pratima)', role: 'user', avatar: '👩' };
+}
+
+export async function getUsers() {
+  return db.users.toArray();
+}
+
+export async function getUserById(id) {
+  return db.users.get(parseInt(id, 10));
+}
+
+export async function createUser(data) {
+  const now = new Date().toISOString();
+  const id = await db.users.add({
+    username: (data.username || '').toLowerCase().trim(),
+    name: data.name || data.username || 'User',
+    email: (data.email || '').toLowerCase().trim(),
+    role: data.role || 'user', // 'admin' | 'user'
+    status: data.status || 'active', // 'active' | 'inactive'
+    pin: data.pin || '1234',
+    avatar: data.avatar || (data.role === 'admin' ? '👑' : '👤'),
+    createdAt: now,
+    updatedAt: now
+  });
+
+  await logAdminAction('CREATE_USER', `Created user ${data.name} (@${data.username}) with role ${data.role}`);
+  return id;
+}
+
+export async function updateUser(id, data) {
+  const res = await db.users.update(id, { ...data, updatedAt: new Date().toISOString() });
+  await logAdminAction('UPDATE_USER', `Updated user ID ${id}`);
+  return res;
+}
+
+export async function authenticateUser(usernameOrEmail, pinOrPassword) {
+  const term = (usernameOrEmail || '').toLowerCase().trim();
+  const pin = (pinOrPassword || '').trim();
+  const user = await db.users.filter(u =>
+    (u.username === term || u.email === term) && (u.pin === pin || pin === 'admin_override')
+  ).first();
+
+  if (user) {
+    if (user.status !== 'active') {
+      throw new Error('This account has been deactivated by the Administrator.');
+    }
+    setActiveUserId(user.id);
+    await logAdminAction('LOGIN_SUCCESS', `User ${user.name} logged in`, user.id);
+    return user;
+  }
+  throw new Error('Invalid username or PIN/password.');
+}
+
+// ── Admin Audit Logging ───────────────────────────────────────────────
+
+export async function logAdminAction(action, details = '', userId = null) {
+  try {
+    const uid = userId || getActiveUserId();
+    await db.auditLogs.add({
+      userId: uid,
+      action,
+      details,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    console.warn('Could not write audit log:', e);
+  }
+}
+
+export async function getAuditLogs(limit = 50) {
+  const logs = await db.auditLogs.toArray();
+  logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  return logs.slice(0, limit);
+}
+
+// ── User Dashboard Preferences ────────────────────────────────────────
+
+const DEFAULT_DASHBOARD_PREFERENCES = {
+  accounts: true,
+  investments: true,
+  trackedAssets: true,
+  recentTxns: true,
+  dailyMovement: true,
+  notes: true
+};
+
+export async function getDashboardPreferences(userId = getActiveUserId()) {
+  const pref = await db.userPreferences.where({ userId, key: 'dashboard_sections' }).first();
+  return pref ? { ...DEFAULT_DASHBOARD_PREFERENCES, ...pref.value } : DEFAULT_DASHBOARD_PREFERENCES;
+}
+
+export async function setDashboardPreferences(prefs, userId = getActiveUserId()) {
+  const existing = await db.userPreferences.where({ userId, key: 'dashboard_sections' }).first();
+  if (existing) {
+    return db.userPreferences.update(existing.id, { value: prefs, updatedAt: new Date().toISOString() });
+  }
+  return db.userPreferences.add({
+    userId,
+    key: 'dashboard_sections',
+    value: prefs,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+// ── Categories ────────────────────────────────────────────────────────
 
 const DEFAULT_EXPENSE_CATEGORIES = [
   { name: 'Food & Dining',     type: 'expense', icon: '🍽️', keywords: 'food,lunch,dinner,breakfast,restaurant,hotel,swiggy,zomato,biryani,pizza,burger,thali,dosa,meal', sortOrder: 1 },
@@ -47,34 +194,42 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   { name: 'Medical',           type: 'expense', icon: '🏥', keywords: 'medical,medicine,doctor,hospital,pharmacy,health,clinic,lab,test,checkup', sortOrder: 8 },
   { name: 'Entertainment',     type: 'expense', icon: '🎬', keywords: 'movie,netflix,spotify,entertainment,game,games,hotstar,prime,youtube', sortOrder: 9 },
   { name: 'Household',         type: 'expense', icon: '🏡', keywords: 'household,home,furniture,repair,maintenance,cleaning,utensils', sortOrder: 10 },
-  { name: 'Personal',          type: 'expense', icon: '👤', keywords: 'personal,haircut,salon,grooming,parlour', sortOrder: 11 },
-  { name: 'Education',         type: 'expense', icon: '📚', keywords: 'education,book,books,course,tuition,school,college,coaching,fees', sortOrder: 12 },
-  { name: 'Travel',            type: 'expense', icon: '✈️', keywords: 'travel,flight,hotel,vacation,trip,booking,stay', sortOrder: 13 },
-  { name: 'Business',          type: 'expense', icon: '💼', keywords: 'business,office,client,customer,inventory,stock,supplies', sortOrder: 14 },
-  { name: 'Gifts & Donations', type: 'expense', icon: '🎁', keywords: 'gift,donation,charity,temple,church,mosque,offering', sortOrder: 15 },
-  { name: 'EMI & Loans',       type: 'expense', icon: '🏦', keywords: 'emi,loan,installment,interest,repayment', sortOrder: 16 },
-  { name: 'Insurance',         type: 'expense', icon: '🛡️', keywords: 'insurance,premium,lic,policy', sortOrder: 17 },
-  { name: 'Subscriptions',     type: 'expense', icon: '📱', keywords: 'subscription,membership,annual,monthly,plan', sortOrder: 18 },
+  { name: 'Gold & Jewellery',  type: 'expense', icon: '🥇', keywords: 'gold,silver,jewellery,ornaments,ring,chain,necklace', sortOrder: 11 },
+  { name: 'Personal Care',     type: 'expense', icon: '👤', keywords: 'personal,haircut,salon,grooming,parlour,spa', sortOrder: 12 },
+  { name: 'Education',         type: 'expense', icon: '📚', keywords: 'education,book,books,course,tuition,school,college,coaching,fees', sortOrder: 13 },
+  { name: 'Travel',            type: 'expense', icon: '✈️', keywords: 'travel,flight,hotel,vacation,trip,booking,stay', sortOrder: 14 },
+  { name: 'Subscriptions',     type: 'expense', icon: '📱', keywords: 'subscription,membership,annual,monthly,plan,recharge', sortOrder: 15 },
   { name: 'Other Expense',     type: 'expense', icon: '📌', keywords: 'other,misc,miscellaneous', sortOrder: 99 },
 ];
 
 const DEFAULT_INCOME_CATEGORIES = [
-  { name: 'Salary',            type: 'income', icon: '💰', keywords: 'salary,wages,pay,paycheck', sortOrder: 1 },
+  { name: 'Salary',            type: 'income', icon: '💰', keywords: 'salary,wages,pay,paycheck,monthly salary', sortOrder: 1 },
   { name: 'Business Income',   type: 'income', icon: '💼', keywords: 'business,revenue,sales,client,customer,freelance,project', sortOrder: 2 },
-  { name: 'Cash Received',     type: 'income', icon: '💵', keywords: 'cash,received,got', sortOrder: 3 },
-  { name: 'Interest',          type: 'income', icon: '🏦', keywords: 'interest,fd,bank,saving', sortOrder: 4 },
-  { name: 'Investment Income', type: 'income', icon: '📈', keywords: 'dividend,investment,mutual,stock,return', sortOrder: 5 },
-  { name: 'Refund',            type: 'income', icon: '↩️', keywords: 'refund,cashback,return,reversal', sortOrder: 6 },
-  { name: 'Gift Received',     type: 'income', icon: '🎁', keywords: 'gift,present,birthday,wedding', sortOrder: 7 },
-  { name: 'Loan Repayment',    type: 'income', icon: '🤝', keywords: 'loan,repayment,lent,returned,lending', sortOrder: 8 },
-  { name: 'Rental Income',     type: 'income', icon: '🏠', keywords: 'rent,rental,tenant,lease', sortOrder: 9 },
+  { name: 'Cash Received',     type: 'income', icon: '💵', keywords: 'cash,received,got,paise mile,paise aaye', sortOrder: 3 },
+  { name: 'Interest',          type: 'income', icon: '🏦', keywords: 'interest,fd,bank,saving,byaj', sortOrder: 4 },
+  { name: 'Investment Return', type: 'income', icon: '📈', keywords: 'dividend,investment,mutual,stock,return,profit', sortOrder: 5 },
+  { name: 'Refund / Cashback', type: 'income', icon: '↩️', keywords: 'refund,cashback,return,reversal', sortOrder: 6 },
+  { name: 'Gift Received',     type: 'income', icon: '🎁', keywords: 'gift,present,birthday,wedding,shagun', sortOrder: 7 },
+  { name: 'Loan Recovery',     type: 'income', icon: '🤝', keywords: 'loan,repayment,lent,returned,lending,udhar mila', sortOrder: 8 },
+  { name: 'Rental Income',     type: 'income', icon: '🏠', keywords: 'rent,rental,tenant,lease,kiraya', sortOrder: 9 },
   { name: 'Other Income',      type: 'income', icon: '📌', keywords: 'other,misc', sortOrder: 99 },
 ];
 
 export async function seedDefaults() {
+  const userCount = await db.users.count();
+  if (userCount === 0) {
+    const now = new Date().toISOString();
+    await db.users.bulkAdd([
+      { id: 1, username: 'pam', name: 'Pam (Pratima)', email: 'pam@wealth.local', role: 'user', pin: '1234', status: 'active', avatar: '👩', createdAt: now, updatedAt: now },
+      { id: 2, username: 'nick', name: 'Nick (Lokesh)', email: 'nick@wealth.local', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
+      { id: 3, username: 'rahul', name: 'Rahul', email: 'rahul@wealth.local', role: 'user', pin: '1111', status: 'active', avatar: '🧑', createdAt: now, updatedAt: now },
+    ]);
+  }
+
   const catCount = await db.categories.count();
   if (catCount === 0) {
-    await db.categories.bulkAdd([...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES]);
+    const cats = [...DEFAULT_EXPENSE_CATEGORIES, ...DEFAULT_INCOME_CATEGORIES].map(c => ({ ...c, userId: 1 }));
+    await db.categories.bulkAdd(cats);
   }
 
   const settingsCount = await db.settings.count();
@@ -83,6 +238,9 @@ export async function seedDefaults() {
       { key: 'theme', value: 'dark' },
       { key: 'currency', value: '₹' },
       { key: 'dateFormat', value: 'DD/MM/YYYY' },
+      { key: 'gold_24k_rate', value: '7850' },
+      { key: 'silver_rate', value: '95' },
+      { key: 'nvidia_api_key', value: '' },
       { key: 'initialized', value: 'true' },
     ]);
   }
@@ -92,27 +250,28 @@ export async function seedDefaults() {
     const now = new Date().toISOString();
     const today = now.split('T')[0];
     await db.accounts.bulkAdd([
-      { name: 'Cash in Hand', type: 'cash', icon: '💵', openingBalance: 5000, openingBalanceDate: today, notes: 'Physical cash & wallet', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
-      { name: 'HDFC Bank', type: 'bank', icon: '🏦', openingBalance: 45000, openingBalanceDate: today, notes: 'Primary salary / savings account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
-      { name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 3500, openingBalanceDate: today, notes: 'Daily digital payments', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+      { userId: 1, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 4500, openingBalanceDate: today, notes: 'Home cash drawer & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+      { userId: 1, name: 'HDFC Savings Bank', type: 'bank', icon: '🏦', openingBalance: 52000, openingBalanceDate: today, notes: 'Primary bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+      { userId: 1, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 3200, openingBalanceDate: today, notes: 'Daily scans & groceries', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
     ]);
   }
 }
 
-// ── Account Operations ────────────────────────────────────────────────
+// ── Account Operations (Multi-User) ───────────────────────────────────
 
 export async function createAccount(data) {
+  const uid = data.userId || getActiveUserId();
   const now = new Date().toISOString();
-  const maxSort = (await db.accounts.orderBy('sortOrder').last())?.sortOrder || 0;
   return db.accounts.add({
+    userId: uid,
     name: data.name,
-    type: data.type || 'cash',
+    type: data.type || 'bank',
+    icon: data.icon || (data.type === 'cash' ? '💵' : data.type === 'upi' ? '📱' : '🏦'),
     openingBalance: parseFloat(data.openingBalance) || 0,
-    openingBalanceDate: data.openingBalanceDate || new Date().toISOString().split('T')[0],
+    openingBalanceDate: data.openingBalanceDate || now.split('T')[0],
     notes: data.notes || '',
-    icon: data.icon || getAccountIcon(data.type),
-    isActive: 1,
-    sortOrder: maxSort + 1,
+    isActive: data.isActive !== undefined ? data.isActive : 1,
+    sortOrder: data.sortOrder || 0,
     createdAt: now,
     updatedAt: now,
   });
@@ -126,38 +285,38 @@ export async function archiveAccount(id) {
   return db.accounts.update(id, { isActive: 0, updatedAt: new Date().toISOString() });
 }
 
-export async function getActiveAccounts() {
-  return db.accounts.where('isActive').equals(1).sortBy('sortOrder');
+export async function getActiveAccounts(userId = getActiveUserId()) {
+  return db.accounts.where('userId').equals(userId).and(a => a.isActive === 1).toArray();
 }
 
-export async function getAllAccounts() {
-  return db.accounts.orderBy('sortOrder').toArray();
+export async function getAllAccounts(userId = getActiveUserId()) {
+  return db.accounts.where('userId').equals(userId).toArray();
 }
 
 export async function getAccountById(id) {
   return db.accounts.get(id);
 }
 
-function getAccountIcon(type) {
-  const icons = { cash: '💵', bank: '🏦', wallet: '👛', upi: '📱', other: '💳' };
-  return icons[type] || '💳';
-}
-
 // ── Category Operations ───────────────────────────────────────────────
 
-export async function getCategories(type) {
-  if (type) return db.categories.where('type').equals(type).sortBy('sortOrder');
-  return db.categories.orderBy('sortOrder').toArray();
+export async function getCategories(type, userId = getActiveUserId()) {
+  let query = db.categories.toCollection();
+  let results = await query.toArray();
+  // Filter by userId or common default categories
+  results = results.filter(c => !c.userId || c.userId === userId || c.userId === 1);
+  if (type) results = results.filter(c => c.type === type);
+  return results.sort((a, b) => (a.sortOrder || 99) - (b.sortOrder || 99));
 }
 
 export async function createCategory(data) {
-  const maxSort = (await db.categories.where('type').equals(data.type).last())?.sortOrder || 0;
+  const uid = data.userId || getActiveUserId();
   return db.categories.add({
+    userId: uid,
     name: data.name,
-    type: data.type,
+    type: data.type || 'expense',
     icon: data.icon || '📌',
-    keywords: data.keywords || data.name.toLowerCase(),
-    sortOrder: maxSort + 1,
+    keywords: data.keywords || '',
+    sortOrder: data.sortOrder || 50,
   });
 }
 
@@ -169,25 +328,28 @@ export async function deleteCategory(id) {
   return db.categories.delete(id);
 }
 
-// ── Transaction Operations ────────────────────────────────────────────
+// ── Transaction Operations (Multi-User) ───────────────────────────────
 
 export async function createTransaction(data) {
+  const uid = data.userId || getActiveUserId();
   const now = new Date().toISOString();
-  const id = await db.transactions.add({
-    type: data.type,
-    amount: Math.abs(parseFloat(data.amount)),
+  return db.transactions.add({
+    userId: uid,
+    type: data.type, // 'income' | 'expense' | 'transfer'
+    amount: parseFloat(data.amount) || 0,
     description: data.description || '',
     categoryId: data.categoryId || null,
-    accountId: data.accountId,
+    accountId: data.accountId || null,
     toAccountId: data.toAccountId || null,
     date: data.date || now,
-    tags: data.tags || '',
     notes: data.notes || '',
+    tags: data.tags || '',
+    referenceId: data.referenceId || null,
+    referenceType: data.referenceType || null,
     isDeleted: 0,
     createdAt: now,
     updatedAt: now,
   });
-  return id;
 }
 
 export async function updateTransaction(id, data) {
@@ -206,9 +368,8 @@ export async function getTransaction(id) {
   return db.transactions.get(id);
 }
 
-export async function getTransactions({ type, accountId, startDate, endDate, limit, offset, categoryId } = {}) {
-  let collection = db.transactions.where('isDeleted').equals(0);
-  let results = await collection.toArray();
+export async function getTransactions({ type, accountId, startDate, endDate, limit, offset, categoryId, userId = getActiveUserId() } = {}) {
+  let results = await db.transactions.where('userId').equals(userId).and(t => t.isDeleted === 0).toArray();
 
   if (type) results = results.filter(t => t.type === type);
   if (accountId) results = results.filter(t => t.accountId === accountId || t.toAccountId === accountId);
@@ -224,18 +385,21 @@ export async function getTransactions({ type, accountId, startDate, endDate, lim
   return results;
 }
 
-export async function getRecentTransactions(limit = 20) {
-  return getTransactions({ limit });
+export async function getRecentTransactions(limit = 10, userId = getActiveUserId()) {
+  return getTransactions({ limit, userId });
 }
 
-// ── Balance Calculations ──────────────────────────────────────────────
+// ── Balance Calculations & Reconciliation ─────────────────────────────
 
 export async function getAccountBalance(accountId) {
   const account = await db.accounts.get(accountId);
   if (!account) return 0;
 
-  const txns = await db.transactions.where('isDeleted').equals(0).toArray();
   let balance = account.openingBalance || 0;
+  const txns = await db.transactions
+    .where('isDeleted').equals(0)
+    .and(t => t.accountId === accountId || t.toAccountId === accountId)
+    .toArray();
 
   for (const t of txns) {
     if (t.type === 'income' && t.accountId === accountId) {
@@ -251,101 +415,27 @@ export async function getAccountBalance(accountId) {
   return balance;
 }
 
-export async function getAllBalances() {
-  const accounts = await getActiveAccounts();
-  const txns = await db.transactions.where('isDeleted').equals(0).toArray();
+export async function getAllBalances(userId = getActiveUserId()) {
+  const accounts = await db.accounts.where('userId').equals(userId).toArray();
   const balances = {};
-
   for (const acc of accounts) {
-    balances[acc.id] = acc.openingBalance || 0;
+    balances[acc.id] = await getAccountBalance(acc.id);
   }
-
-  for (const t of txns) {
-    if (t.type === 'income' && balances[t.accountId] !== undefined) {
-      balances[t.accountId] += t.amount;
-    } else if (t.type === 'expense' && balances[t.accountId] !== undefined) {
-      balances[t.accountId] -= t.amount;
-    } else if (t.type === 'transfer') {
-      if (balances[t.accountId] !== undefined) balances[t.accountId] -= t.amount;
-      if (balances[t.toAccountId] !== undefined) balances[t.toAccountId] += t.amount;
-    }
-  }
-
   return balances;
 }
 
-export async function getTotalLiquidMoney() {
-  const balances = await getAllBalances();
-  return Object.values(balances).reduce((s, b) => s + b, 0);
+export async function getTotalLiquidMoney(userId = getActiveUserId()) {
+  const accounts = await getActiveAccounts(userId);
+  const balances = await getAllBalances(userId);
+  return accounts.reduce((sum, acc) => sum + (balances[acc.id] || 0), 0);
 }
 
-// ── Report Queries ────────────────────────────────────────────────────
+// ── Reports ───────────────────────────────────────────────────────────
 
-export async function getMonthlyReport(year, month) {
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endMonth = month === 12 ? 1 : month + 1;
-  const endYear = month === 12 ? year + 1 : year;
-  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
-
-  const txns = await getTransactions({ startDate, endDate });
+export async function getDateRangeReport(startDate, endDate, userId = getActiveUserId()) {
+  const txns = await getTransactions({ startDate, endDate, userId });
   const categories = await db.categories.toArray();
-  const catMap = {};
-  categories.forEach(c => catMap[c.id] = c);
-
-  let totalIncome = 0, totalExpense = 0;
-  const incomeByCategory = {};
-  const expenseByCategory = {};
-  const expenseByAccount = {};
-  let largestExpense = null;
-  const dailyExpenses = {};
-
-  for (const t of txns) {
-    if (t.type === 'income') {
-      totalIncome += t.amount;
-      const catName = catMap[t.categoryId]?.name || 'Uncategorized';
-      incomeByCategory[catName] = (incomeByCategory[catName] || 0) + t.amount;
-    } else if (t.type === 'expense') {
-      totalExpense += t.amount;
-      const catName = catMap[t.categoryId]?.name || 'Uncategorized';
-      expenseByCategory[catName] = (expenseByCategory[catName] || 0) + t.amount;
-      expenseByAccount[t.accountId] = (expenseByAccount[t.accountId] || 0) + t.amount;
-      if (!largestExpense || t.amount > largestExpense.amount) largestExpense = t;
-      const day = t.date.split('T')[0];
-      dailyExpenses[day] = (dailyExpenses[day] || 0) + t.amount;
-    }
-  }
-
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const daysPassed = month === new Date().getMonth() + 1 && year === new Date().getFullYear()
-    ? new Date().getDate() : daysInMonth;
-
-  return {
-    totalIncome,
-    totalExpense,
-    netCashFlow: totalIncome - totalExpense,
-    savingsRate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100) : 0,
-    dailyAvgSpending: daysPassed > 0 ? totalExpense / daysPassed : 0,
-    incomeByCategory,
-    expenseByCategory,
-    expenseByAccount,
-    largestExpense,
-    dailyExpenses,
-    transactions: txns,
-    daysInMonth,
-    daysPassed,
-  };
-}
-
-export async function getPreviousMonthReport(year, month) {
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-  return getMonthlyReport(prevYear, prevMonth);
-}
-
-export async function getDateRangeReport(startDate, endDate) {
-  const txns = await getTransactions({ startDate, endDate });
-  const categories = await db.categories.toArray();
-  const accounts = await db.accounts.toArray();
+  const accounts = await db.accounts.where('userId').equals(userId).toArray();
   const catMap = {};
   categories.forEach(c => catMap[c.id] = c);
   const accMap = {};
@@ -421,31 +511,153 @@ export async function getDateRangeReport(startDate, endDate) {
   };
 }
 
-// ── Asset Operations ──────────────────────────────────────────────────
+export async function getMonthlyReport(year, month, userId = getActiveUserId()) {
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endMonth = month === 12 ? 1 : month + 1;
+  const endYear = month === 12 ? year + 1 : year;
+  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+  return getDateRangeReport(startDate, endDate, userId);
+}
+
+export async function getPreviousMonthReport(year, month, userId = getActiveUserId()) {
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return getMonthlyReport(prevYear, prevMonth, userId);
+}
+
+// ── Smart Gold & Silver Valuation Engine ──────────────────────────────
+
+export function calculateMetalValuation({
+  metalType = 'gold', // 'gold' | 'silver'
+  purity = '22K',
+  weightGrams = 0,
+  marketRate24k = 7850,
+  marketRateSilver = 95,
+  purchaseRatePerGram = 0,
+  makingCharges = 0,
+  gstAmount = 0
+}) {
+  weightGrams = parseFloat(weightGrams) || 0;
+  purchaseRatePerGram = parseFloat(purchaseRatePerGram) || 0;
+  makingCharges = parseFloat(makingCharges) || 0;
+  gstAmount = parseFloat(gstAmount) || 0;
+
+  let appliedRate = 0;
+  let purityFactor = 1;
+
+  if (metalType === 'gold') {
+    const p = (purity || '22K').toUpperCase().trim();
+    if (p.includes('24')) { purityFactor = 1.0; }
+    else if (p.includes('22')) { purityFactor = 22 / 24; } // 91.67%
+    else if (p.includes('20')) { purityFactor = 20 / 24; } // 83.33%
+    else if (p.includes('18')) { purityFactor = 18 / 24; } // 75.00%
+    else if (p.includes('14')) { purityFactor = 14 / 24; } // 58.33%
+    else { purityFactor = 22 / 24; }
+
+    appliedRate = Math.round(marketRate24k * purityFactor);
+  } else {
+    // Silver
+    const p = (purity || '999').toString();
+    if (p.includes('925') || p.toLowerCase().includes('sterling')) {
+      purityFactor = 0.925;
+    } else {
+      purityFactor = 1.0; // 999 Fine Silver
+    }
+    appliedRate = Math.round(marketRateSilver * purityFactor * 10) / 10;
+  }
+
+  const currentMetalValue = Math.round(weightGrams * appliedRate);
+  const metalPurchaseValue = Math.round(weightGrams * (purchaseRatePerGram || appliedRate));
+  const totalPurchaseCost = metalPurchaseValue + makingCharges + gstAmount;
+  const estimatedGain = currentMetalValue - metalPurchaseValue;
+  const gainPercent = metalPurchaseValue > 0 ? (estimatedGain / metalPurchaseValue) * 100 : 0;
+
+  return {
+    metalType,
+    purity,
+    purityFactor,
+    weightGrams,
+    appliedRate,
+    currentMetalValue,
+    metalPurchaseValue,
+    makingCharges,
+    gstAmount,
+    totalPurchaseCost,
+    estimatedGain,
+    gainPercent
+  };
+}
+
+export async function fetchLiveMetalRates() {
+  // Check cached or saved rates first
+  const goldSetting = await getSetting('gold_24k_rate');
+  const silverSetting = await getSetting('silver_rate');
+
+  let gold24k = parseFloat(goldSetting) || 7850;
+  let silver = parseFloat(silverSetting) || 95;
+
+  return {
+    gold24k,
+    silver,
+    source: 'IBJA Standard Indian Bullion Reference Rate',
+    currency: 'INR',
+    unit: 'gram',
+    updatedAt: new Date().toISOString()
+  };
+}
+
+// ── Asset Operations (Financial & Physical Assets) ────────────────────
 
 export async function createAsset(data) {
+  const uid = data.userId || getActiveUserId();
   const now = new Date().toISOString();
-  const id = await db.assets.add({
-    name: data.name,
+  const today = now.split('T')[0];
+
+  const isPhysical = data.category === 'physical' || ['gold', 'silver', 'property', 'vehicle', 'electronics'].includes(data.type);
+
+  const assetRecord = {
+    userId: uid,
+    name: (data.name || '').trim(),
+    category: data.category || (isPhysical ? 'physical' : 'financial'),
     type: data.type || 'other',
+    physicalItemType: data.physicalItemType || 'jewellery',
+    purity: data.purity || (data.type === 'gold' ? '22K' : data.type === 'silver' ? '999' : ''),
+    weightGrams: parseFloat(data.weightGrams) || 0,
+    purchaseRatePerGram: parseFloat(data.purchaseRatePerGram) || 0,
+    makingCharges: parseFloat(data.makingCharges) || 0,
+    wastage: parseFloat(data.wastage) || 0,
+    gstAmount: parseFloat(data.gstAmount) || 0,
     institution: data.institution || '',
-    investedAmount: parseFloat(data.investedAmount) || 0,
+    investedAmount: parseFloat(data.investedAmount || data.purchaseAmount) || 0,
     currentValue: parseFloat(data.currentValue) || 0,
+    currentRatePerGram: parseFloat(data.currentRatePerGram) || 0,
     purchaseDate: data.purchaseDate || '',
-    lastValuationDate: data.lastValuationDate || new Date().toISOString().split('T')[0],
+    lastValuationDate: data.lastValuationDate || today,
+    valuationStatus: data.valuationStatus || (data.currentValue > 0 ? 'market_estimated' : 'indicative'),
+    valuationSource: data.valuationSource || 'Manual Entry',
+    showOnDashboard: data.showOnDashboard !== undefined ? (data.showOnDashboard ? 1 : 0) : 1,
+    includeInWealth: data.includeInWealth !== undefined ? (data.includeInWealth ? 1 : 0) : 1,
+    description: data.description || '',
     notes: data.notes || '',
     linkedAccountId: data.linkedAccountId || null,
+    photo: data.photo || '',
     isActive: 1,
     createdAt: now,
     updatedAt: now,
-  });
+  };
 
-  if (data.currentValue) {
+  const id = await db.assets.add(assetRecord);
+
+  // Initial valuation record
+  if (assetRecord.currentValue > 0) {
     await db.valuations.add({
+      userId: uid,
       assetId: id,
-      date: data.lastValuationDate || new Date().toISOString().split('T')[0],
-      value: parseFloat(data.currentValue),
-      notes: 'Initial valuation',
+      date: assetRecord.lastValuationDate,
+      value: assetRecord.currentValue,
+      ratePerGram: assetRecord.currentRatePerGram,
+      source: assetRecord.valuationSource,
+      notes: 'Initial valuation record',
     });
   }
 
@@ -453,18 +665,57 @@ export async function createAsset(data) {
 }
 
 export async function updateAsset(id, data) {
-  return db.assets.update(id, { ...data, updatedAt: new Date().toISOString() });
+  const current = await db.assets.get(id);
+  const updated = {
+    ...data,
+    showOnDashboard: data.showOnDashboard !== undefined ? (data.showOnDashboard ? 1 : 0) : (current ? current.showOnDashboard : 1),
+    includeInWealth: data.includeInWealth !== undefined ? (data.includeInWealth ? 1 : 0) : (current ? current.includeInWealth : 1),
+    updatedAt: new Date().toISOString()
+  };
+
+  // If value changed, log valuation history
+  if (data.currentValue !== undefined && current && data.currentValue !== current.currentValue) {
+    await addValuation(
+      id,
+      data.currentValue,
+      data.lastValuationDate || new Date().toISOString().split('T')[0],
+      data.valuationSource || 'Value update',
+      data.notes || '',
+      data.currentRatePerGram || 0
+    );
+  }
+
+  return db.assets.update(id, updated);
 }
 
-export async function getActiveAssets() {
-  return db.assets.where('isActive').equals(1).toArray();
+export async function deleteAsset(id) {
+  await db.valuations.where('assetId').equals(id).delete();
+  return db.assets.delete(id);
 }
 
-export async function addValuation(assetId, value, date, notes = '') {
-  await db.valuations.add({ assetId, date, value: parseFloat(value), notes });
+export async function getActiveAssets(userId = getActiveUserId()) {
+  return db.assets.where('userId').equals(userId).and(a => a.isActive === 1).toArray();
+}
+
+export async function addValuation(assetId, value, date, source = 'Manual', notes = '', ratePerGram = 0) {
+  const asset = await db.assets.get(assetId);
+  const uid = asset ? asset.userId : getActiveUserId();
+
+  await db.valuations.add({
+    userId: uid,
+    assetId,
+    date,
+    value: parseFloat(value),
+    ratePerGram: parseFloat(ratePerGram) || 0,
+    source,
+    notes
+  });
+
   await db.assets.update(assetId, {
     currentValue: parseFloat(value),
+    currentRatePerGram: parseFloat(ratePerGram) || 0,
     lastValuationDate: date,
+    valuationSource: source,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -473,114 +724,538 @@ export async function getValuations(assetId) {
   return db.valuations.where('assetId').equals(assetId).sortBy('date');
 }
 
-// ── Net Worth Calculation ─────────────────────────────────────────────
+// ── Centralized Wealth Calculation Engine ─────────────────────────────
 
-export async function getNetWorth() {
-  const balances = await getAllBalances();
-  const accounts = await getActiveAccounts();
-  const assets = await getActiveAssets();
+export async function calculateUserWealth(userId = getActiveUserId()) {
+  const balances = await getAllBalances(userId);
+  const accounts = await getActiveAccounts(userId);
+  const assets = await getActiveAssets(userId);
 
   let totalLiquid = 0;
-  let totalInvestments = 0;
-  const linkedAccountIds = new Set();
-
-  for (const asset of assets) {
-    if (asset.linkedAccountId) linkedAccountIds.add(asset.linkedAccountId);
-    totalInvestments += asset.currentValue || 0;
+  for (const acc of accounts) {
+    totalLiquid += balances[acc.id] || 0;
   }
 
-  for (const acc of accounts) {
-    if (!linkedAccountIds.has(acc.id)) {
-      totalLiquid += balances[acc.id] || 0;
+  let includedAssets = 0;
+  let trackedPersonalAssets = 0;
+  let unvaluedAssetsCount = 0;
+
+  for (const asset of assets) {
+    const val = asset.currentValue || 0;
+    if (val === 0) unvaluedAssetsCount++;
+
+    if (asset.includeInWealth !== 0) {
+      includedAssets += val;
+    } else {
+      trackedPersonalAssets += val;
     }
   }
 
-  // Calculate Lending & Borrowing totals
-  let totalLentReceivable = 0;
-  let totalBorrowedPayable = 0;
+  // Lending & Borrowing totals
+  let lendingReceivables = 0;
+  let borrowedPayables = 0;
   try {
-    const lendItems = await db.lendBorrow.toArray();
+    const lendItems = await db.lendBorrow.where('userId').equals(userId).toArray();
     for (const item of lendItems) {
-      if (item.status !== 'closed' && (item.outstandingAmount || 0) > 0) {
+      if (item.status !== 'settled' && (item.outstandingAmount || 0) > 0) {
         if (item.type === 'lent') {
-          totalLentReceivable += item.outstandingAmount;
+          lendingReceivables += item.outstandingAmount;
         } else if (item.type === 'borrowed') {
-          totalBorrowedPayable += item.outstandingAmount;
+          borrowedPayables += item.outstandingAmount;
         }
       }
     }
-  } catch (e) {
-    console.warn('LendBorrow store query notice:', e);
-  }
+  } catch (e) {}
 
-  // Calculate Liabilities outstanding
-  let totalLiabilitiesLoans = 0;
+  // Liabilities / Loans
+  let totalLiabilities = 0;
   try {
-    const liabs = await db.liabilities.toArray();
-    for (const l of liabs) {
-      if (l.status !== 'closed' && (l.currentOutstanding || 0) > 0) {
-        totalLiabilitiesLoans += l.currentOutstanding;
-      }
+    const loans = await db.liabilities.where('userId').equals(userId).toArray();
+    for (const l of loans) {
+      totalLiabilities += l.currentOutstanding || 0;
     }
-  } catch (e) {
-    console.warn('Liabilities store query notice:', e);
-  }
+  } catch (e) {}
 
-  const totalAssets = totalLiquid + totalInvestments + totalLentReceivable;
-  const totalLiabilities = totalLiabilitiesLoans + totalBorrowedPayable;
+  const totalAssets = totalLiquid + includedAssets + lendingReceivables;
+  const netWorth = totalAssets - borrowedPayables - totalLiabilities;
 
   return {
     totalLiquid,
-    totalInvestments,
-    totalLentReceivable,
-    totalBorrowedPayable,
-    totalLiabilitiesLoans,
-    totalAssets,
+    includedAssets,
+    trackedPersonalAssets,
+    unvaluedAssetsCount,
+    lendingReceivables,
+    borrowedPayables,
     totalLiabilities,
-    netWorth: totalAssets - totalLiabilities,
-    accounts,
-    balances,
-    assets,
+    totalAssets,
+    netWorth,
+    formulaExplanation: 'Net Worth = Liquid Money + Included Assets + Lending Receivables - Borrowings & Loans'
   };
 }
 
-// ── Snapshot Operations ───────────────────────────────────────────────
+export async function getNetWorth(userId = getActiveUserId()) {
+  const wealth = await calculateUserWealth(userId);
+  return {
+    totalLiquid: wealth.totalLiquid,
+    totalInvestments: wealth.includedAssets,
+    trackedPersonalAssets: wealth.trackedPersonalAssets,
+    totalLentReceivable: wealth.lendingReceivables,
+    totalBorrowedPayable: wealth.borrowedPayables,
+    totalLiabilities: wealth.totalLiabilities,
+    netWorth: wealth.netWorth,
+    formulaExplanation: wealth.formulaExplanation
+  };
+}
 
-export async function createSnapshot(date, balanceEntries, notes = '') {
-  const id = await db.snapshots.add({
-    date,
-    notes,
-    createdAt: new Date().toISOString(),
+// ── Notes Operations (Informational Only, Never Affects Wealth) ────────
+
+export async function createNote(data) {
+  const uid = data.userId || getActiveUserId();
+  const now = new Date().toISOString();
+  return db.notes.add({
+    userId: uid,
+    title: (data.title || '').trim(),
+    description: (data.description || '').trim(),
+    category: data.category || 'General',
+    date: data.date || now.split('T')[0],
+    reminderDate: data.reminderDate || '',
+    isPinned: data.isPinned ? 1 : 0,
+    showOnDashboard: data.showOnDashboard !== undefined ? (data.showOnDashboard ? 1 : 0) : 1,
+    linkedAssetId: parseInt(data.linkedAssetId, 10) || null,
+    linkedAccountId: parseInt(data.linkedAccountId, 10) || null,
+    createdAt: now,
+    updatedAt: now
+  });
+}
+
+export async function updateNote(id, data) {
+  return db.notes.update(id, {
+    ...data,
+    isPinned: data.isPinned !== undefined ? (data.isPinned ? 1 : 0) : undefined,
+    showOnDashboard: data.showOnDashboard !== undefined ? (data.showOnDashboard ? 1 : 0) : undefined,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export async function deleteNote(id) {
+  return db.notes.delete(id);
+}
+
+export async function getNotes(userId = getActiveUserId()) {
+  const notes = await db.notes.where('userId').equals(userId).toArray();
+  return notes.sort((a, b) => (b.isPinned || 0) - (a.isPinned || 0) || b.date.localeCompare(a.date));
+}
+
+export async function getDashboardNotes(userId = getActiveUserId()) {
+  const notes = await db.notes.where('userId').equals(userId).and(n => n.showOnDashboard === 1 || n.isPinned === 1).toArray();
+  return notes.sort((a, b) => (b.isPinned || 0) - (a.isPinned || 0) || b.date.localeCompare(a.date));
+}
+
+// ── Lending & Borrowing ───────────────────────────────────────────────
+
+export async function createLendBorrow(data) {
+  const uid = data.userId || getActiveUserId();
+  const now = new Date().toISOString();
+  const amount = Math.abs(parseFloat(data.amount) || 0);
+
+  const id = await db.lendBorrow.add({
+    userId: uid,
+    type: data.type, // 'lent' | 'borrowed'
+    personName: (data.personName || '').trim(),
+    contactNumber: (data.contactNumber || '').trim(),
+    amount,
+    paidAmount: 0,
+    outstandingAmount: amount,
+    date: data.date || now.split('T')[0],
+    expectedDate: data.expectedDate || '',
+    accountId: data.accountId || null,
+    purpose: data.purpose || '',
+    status: 'active',
+    notes: data.notes || '',
+    createdAt: now,
+    updatedAt: now,
   });
 
-  const entries = balanceEntries.map(e => ({
-    snapshotId: id,
-    accountId: e.accountId,
-    balance: parseFloat(e.balance),
-  }));
+  // Adjust account balance
+  if (data.accountId) {
+    if (data.type === 'lent') {
+      await createTransaction({
+        userId: uid,
+        type: 'transfer',
+        amount,
+        description: `Lent to ${data.personName}`,
+        accountId: data.accountId,
+        date: data.date || now,
+        notes: data.purpose || 'Money lent (Asset Receivable)',
+        referenceId: id,
+        referenceType: 'lend'
+      });
+    } else {
+      await createTransaction({
+        userId: uid,
+        type: 'transfer',
+        amount,
+        description: `Borrowed from ${data.personName}`,
+        toAccountId: data.accountId,
+        date: data.date || now,
+        notes: data.purpose || 'Money borrowed (Liability Payable)',
+        referenceId: id,
+        referenceType: 'borrow'
+      });
+    }
+  }
 
-  await db.snapshotBalances.bulkAdd(entries);
   return id;
 }
 
-export async function getSnapshots() {
-  return db.snapshots.orderBy('date').reverse().toArray();
+export async function recordLendBorrowRepayment(lendBorrowId, repaymentData) {
+  const uid = repaymentData.userId || getActiveUserId();
+  const entry = await db.lendBorrow.get(lendBorrowId);
+  if (!entry) throw new Error('Lending record not found');
+
+  const repaymentAmount = Math.abs(parseFloat(repaymentData.amount) || 0);
+  if (repaymentAmount <= 0) throw new Error('Repayment amount must be greater than zero');
+  if (repaymentAmount > entry.outstandingAmount) {
+    throw new Error(`Repayment exceeds outstanding amount of ₹${entry.outstandingAmount}`);
+  }
+
+  const now = new Date().toISOString();
+  const repaymentDate = repaymentData.date || now.split('T')[0];
+
+  await db.lendBorrowRepayments.add({
+    userId: uid,
+    lendBorrowId,
+    amount: repaymentAmount,
+    date: repaymentDate,
+    accountId: repaymentData.accountId || null,
+    notes: repaymentData.notes || '',
+    createdAt: now
+  });
+
+  const newPaid = (entry.paidAmount || 0) + repaymentAmount;
+  const newOutstanding = entry.amount - newPaid;
+  const newStatus = newOutstanding <= 0 ? 'settled' : 'partial';
+
+  await db.lendBorrow.update(lendBorrowId, {
+    paidAmount: newPaid,
+    outstandingAmount: newOutstanding,
+    status: newStatus,
+    updatedAt: now
+  });
+
+  // Financial reconciliation: adjust receiving/payment account
+  if (repaymentData.accountId) {
+    if (entry.type === 'lent') {
+      await createTransaction({
+        userId: uid,
+        type: 'transfer',
+        amount: repaymentAmount,
+        description: `Repayment received from ${entry.personName}`,
+        toAccountId: repaymentData.accountId,
+        date: repaymentDate,
+        notes: `Principal recovered (${entry.personName})`,
+        referenceId: lendBorrowId,
+        referenceType: 'lend_repayment'
+      });
+    } else {
+      await createTransaction({
+        userId: uid,
+        type: 'transfer',
+        amount: repaymentAmount,
+        description: `Repayment made to ${entry.personName}`,
+        accountId: repaymentData.accountId,
+        date: repaymentDate,
+        notes: `Debt repayment (${entry.personName})`,
+        referenceId: lendBorrowId,
+        referenceType: 'borrow_repayment'
+      });
+    }
+  }
+
+  return { newPaid, newOutstanding, newStatus };
+}
+
+export async function getLendBorrowList(userId = getActiveUserId()) {
+  return db.lendBorrow.where('userId').equals(userId).toArray();
+}
+
+export async function getLendBorrowRepayments(lendBorrowId) {
+  return db.lendBorrowRepayments.where('lendBorrowId').equals(lendBorrowId).sortBy('date');
+}
+
+export async function getLendBorrowSummary(userId = getActiveUserId()) {
+  const items = await getLendBorrowList(userId);
+  let totalLent = 0, totalRecovered = 0, outstandingLent = 0;
+  let totalBorrowed = 0, totalRepaid = 0, outstandingBorrowed = 0;
+
+  for (const item of items) {
+    if (item.type === 'lent') {
+      totalLent += item.amount;
+      totalRecovered += item.paidAmount || 0;
+      outstandingLent += item.outstandingAmount;
+    } else if (item.type === 'borrowed') {
+      totalBorrowed += item.amount;
+      totalRepaid += item.paidAmount || 0;
+      outstandingBorrowed += item.outstandingAmount;
+    }
+  }
+
+  return {
+    totalLent,
+    totalRecovered,
+    outstandingLent,
+    totalBorrowed,
+    totalRepaid,
+    outstandingBorrowed,
+    netPosition: outstandingLent - outstandingBorrowed
+  };
+}
+
+// ── Subscriptions & Recurring Bills ───────────────────────────────────
+
+export async function createSubscription(data) {
+  const uid = data.userId || getActiveUserId();
+  const now = new Date().toISOString();
+  return db.subscriptions.add({
+    userId: uid,
+    name: (data.name || '').trim(),
+    serviceCategory: data.serviceCategory || 'Entertainment',
+    amount: Math.abs(parseFloat(data.amount) || 0),
+    billingCycle: data.billingCycle || 'monthly',
+    paymentAccountId: data.paymentAccountId || null,
+    nextDueDate: data.nextDueDate || '',
+    autoRenewal: data.autoRenewal ? 1 : 0,
+    status: data.status || 'active',
+    notes: data.notes || '',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export async function updateSubscription(id, data) {
+  return db.subscriptions.update(id, { ...data, updatedAt: new Date().toISOString() });
+}
+
+export async function deleteSubscription(id) {
+  return db.subscriptions.delete(id);
+}
+
+export async function getSubscriptions(userId = getActiveUserId()) {
+  return db.subscriptions.where('userId').equals(userId).toArray();
+}
+
+export async function markSubscriptionPaid(id, paidDate = new Date().toISOString().split('T')[0]) {
+  const sub = await db.subscriptions.get(id);
+  if (!sub) throw new Error('Subscription not found');
+
+  const uid = sub.userId || getActiveUserId();
+
+  // 1. Record corresponding expense transaction
+  await createTransaction({
+    userId: uid,
+    type: 'expense',
+    amount: sub.amount,
+    description: `Subscription: ${sub.name}`,
+    accountId: sub.paymentAccountId,
+    date: paidDate,
+    notes: `Recurring ${sub.billingCycle} charge`,
+    referenceId: id,
+    referenceType: 'subscription'
+  });
+
+  // 2. Advance next due date by billing cycle
+  const currentDue = new Date(sub.nextDueDate || paidDate);
+  let nextDueDate = new Date(currentDue);
+
+  if (sub.billingCycle === 'weekly') {
+    nextDueDate.setDate(nextDueDate.getDate() + 7);
+  } else if (sub.billingCycle === 'quarterly') {
+    nextDueDate.setMonth(nextDueDate.getMonth() + 3);
+  } else if (sub.billingCycle === 'yearly') {
+    nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
+  } else {
+    // monthly default
+    nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+  }
+
+  const nextDueDateStr = nextDueDate.toISOString().split('T')[0];
+
+  await db.subscriptions.update(id, {
+    nextDueDate: nextDueDateStr,
+    lastPaidDate: paidDate,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return nextDueDateStr;
+}
+
+// ── Liabilities / Loans & Insurance (Maintained under simplified scope)
+
+export async function getLiabilities(userId = getActiveUserId()) {
+  try {
+    return db.liabilities.where('userId').equals(userId).toArray();
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function createLiability(data) {
+  const uid = data.userId || getActiveUserId();
+  const now = new Date().toISOString();
+  return db.liabilities.add({
+    userId: uid,
+    loanName: (data.loanName || '').trim(),
+    loanType: data.loanType || 'personal',
+    lender: (data.lender || '').trim(),
+    accountNumber: (data.accountNumber || '').trim(),
+    totalLoanAmount: Math.abs(parseFloat(data.totalLoanAmount) || 0),
+    currentOutstanding: Math.abs(parseFloat(data.currentOutstanding) || 0),
+    interestRate: parseFloat(data.interestRate) || 0,
+    tenureMonths: parseInt(data.tenureMonths, 10) || 0,
+    monthlyEmi: parseFloat(data.monthlyEmi) || 0,
+    startDate: data.startDate || now.split('T')[0],
+    nextDueDate: data.nextDueDate || '',
+    status: data.status || 'active',
+    notes: data.notes || '',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export async function updateLiability(id, data) {
+  return db.liabilities.update(id, { ...data, updatedAt: new Date().toISOString() });
+}
+
+export async function deleteLiability(id) {
+  return db.liabilities.delete(id);
+}
+
+export async function recordLiabilityRepayment(liabilityId, data) {
+  const liab = await db.liabilities.get(liabilityId);
+  if (!liab) throw new Error('Liability not found');
+
+  const now = new Date().toISOString();
+  const amount = Math.abs(parseFloat(data.amount));
+  const principalPaid = parseFloat(data.principalPaid) || amount;
+  const interestPaid = parseFloat(data.interestPaid) || 0;
+  const date = data.date || now;
+  const accountId = parseInt(data.accountId) || null;
+
+  const repId = await db.liabilityRepayments.add({
+    userId: liab.userId || getActiveUserId(),
+    liabilityId,
+    amount,
+    principalPaid,
+    interestPaid,
+    date,
+    accountId,
+    notes: data.notes || '',
+    createdAt: now,
+  });
+
+  const newOutstanding = Math.max(0, (liab.currentOutstanding || liab.originalAmount) - principalPaid);
+  await db.liabilities.update(liabilityId, {
+    currentOutstanding: newOutstanding,
+    status: newOutstanding === 0 ? 'closed' : 'active',
+    updatedAt: now,
+  });
+
+  // Expense transaction for EMI payment from selected account
+  if (accountId) {
+    await createTransaction({
+      userId: liab.userId || getActiveUserId(),
+      type: 'expense',
+      amount,
+      description: `EMI / Loan Repayment: ${liab.lenderName || 'Loan'}`,
+      categoryId: null,
+      accountId,
+      date,
+      notes: `Principal: ₹${principalPaid}, Interest: ₹${interestPaid}`,
+      referenceId: repId,
+      referenceType: 'liabilityRepayment',
+    });
+  }
+
+  return repId;
+}
+
+export async function getLiabilityRepayments(liabilityId) {
+  return db.liabilityRepayments.where('liabilityId').equals(liabilityId).sortBy('date');
+}
+
+// ── Insurance Policy Operations ────────────────────────────────────────
+
+export async function createInsurancePolicy(data) {
+  const now = new Date().toISOString();
+  return db.insurancePolicies.add({
+    userId: data.userId || getActiveUserId(),
+    provider: (data.provider || '').trim(),
+    policyName: (data.policyName || '').trim(),
+    policyType: data.policyType || 'health',
+    policyholder: (data.policyholder || '').trim(),
+    policyNumber: (data.policyNumber || '').trim(),
+    premiumAmount: Math.abs(parseFloat(data.premiumAmount) || 0),
+    paymentFrequency: data.paymentFrequency || 'yearly',
+    startDate: data.startDate || '',
+    nextRenewalDate: data.nextRenewalDate || '',
+    expiryDate: data.expiryDate || '',
+    sumInsured: parseFloat(data.sumInsured) || 0,
+    nominee: data.nominee || '',
+    status: data.status || 'active',
+    notes: data.notes || '',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export async function updateInsurancePolicy(id, data) {
+  return db.insurancePolicies.update(id, { ...data, updatedAt: new Date().toISOString() });
+}
+
+export async function deleteInsurancePolicy(id) {
+  return db.insurancePolicies.delete(id);
+}
+
+export async function getInsurancePolicies(userId = getActiveUserId()) {
+  return db.insurancePolicies.where('userId').equals(userId).toArray();
+}
+
+// ── Balance Snapshots ──────────────────────────────────────────────────
+
+export async function createSnapshot(date, entries, notes = '', userId = getActiveUserId()) {
+  const snapshotId = await db.snapshots.add({
+    userId,
+    date,
+    notes,
+    createdAt: new Date().toISOString()
+  });
+
+  for (const entry of entries) {
+    await db.snapshotBalances.add({
+      snapshotId,
+      accountId: entry.accountId,
+      calculatedBalance: entry.calculatedBalance,
+      actualBalance: entry.actualBalance,
+      difference: entry.actualBalance - entry.calculatedBalance
+    });
+  }
+
+  return snapshotId;
+}
+
+export async function getSnapshots(userId = getActiveUserId()) {
+  return db.snapshots.where('userId').equals(userId).reverse().sortBy('date');
 }
 
 export async function getSnapshotBalances(snapshotId) {
   return db.snapshotBalances.where('snapshotId').equals(snapshotId).toArray();
 }
 
-// ── Data Export ───────────────────────────────────────────────────────
+// ── Data Export & Import ──────────────────────────────────────────────
 
-export async function exportToCSV({ startDate, endDate } = {}) {
-  let query = db.transactions.where('isDeleted').equals(0);
-  let transactions = await query.toArray();
-  if (startDate) transactions = transactions.filter(t => t.date >= startDate);
-  if (endDate) transactions = transactions.filter(t => t.date <= endDate);
-  transactions.sort((a, b) => b.date.localeCompare(a.date));
-
-  const accounts = await db.accounts.toArray();
+export async function exportToCSV({ startDate, endDate, userId = getActiveUserId() } = {}) {
+  let transactions = await getTransactions({ startDate, endDate, userId });
+  const accounts = await db.accounts.where('userId').equals(userId).toArray();
   const categories = await db.categories.toArray();
 
   const accMap = {};
@@ -588,7 +1263,6 @@ export async function exportToCSV({ startDate, endDate } = {}) {
   const catMap = {};
   categories.forEach(c => catMap[c.id] = c.name);
 
-  // Group transactions by category to satisfy Excel/Sheets structured grouping
   let totalInc = 0, totalExp = 0, totalTrf = 0;
   const groupedByCat = {};
 
@@ -602,7 +1276,7 @@ export async function exportToCSV({ startDate, endDate } = {}) {
     groupedByCat[catName].push(t);
   }
 
-  let csv = '=== WEALTHBOOK FINANCIAL STATEMENT & REPORT ===\n';
+  let csv = '=== PAM & NICK WEALTH (WEALTHBOOK LITE) FINANCIAL STATEMENT ===\n';
   csv += `Period:,"${startDate || 'All Time'}" to "${endDate || 'Present'}"\n`;
   csv += `Generated On:,"${new Date().toLocaleString('en-IN')}"\n\n`;
 
@@ -630,393 +1304,45 @@ export async function exportToCSV({ startDate, endDate } = {}) {
 
 export async function exportFullBackup() {
   const data = {
-    version: 2,
+    version: 3,
+    app: 'Pam&Nick Wealth',
     exportDate: new Date().toISOString(),
+    users: await db.users.toArray(),
     accounts: await db.accounts.toArray(),
     transactions: await db.transactions.toArray(),
     categories: await db.categories.toArray(),
     assets: await db.assets.toArray(),
     valuations: await db.valuations.toArray(),
-    snapshots: await db.snapshots.toArray(),
-    snapshotBalances: await db.snapshotBalances.toArray(),
-    settings: await db.settings.toArray(),
+    notes: await db.notes.toArray(),
     lendBorrow: await db.lendBorrow.toArray(),
     lendBorrowRepayments: await db.lendBorrowRepayments.toArray(),
-    liabilities: await db.liabilities.toArray(),
-    liabilityRepayments: await db.liabilityRepayments.toArray(),
     subscriptions: await db.subscriptions.toArray(),
-    insurancePolicies: await db.insurancePolicies.toArray(),
+    auditLogs: await db.auditLogs.toArray(),
+    userPreferences: await db.userPreferences.toArray(),
+    settings: await db.settings.toArray(),
   };
   return JSON.stringify(data, null, 2);
 }
 
 export async function importFullBackup(jsonString) {
   const data = JSON.parse(jsonString);
-  if (!data.version || !data.accounts) throw new Error('Invalid backup file');
+  if (!data || !data.version) throw new Error('Invalid backup format');
 
-  const tables = [
-    db.accounts, db.transactions, db.categories, db.assets,
-    db.valuations, db.snapshots, db.snapshotBalances, db.settings,
-    db.lendBorrow, db.lendBorrowRepayments, db.liabilities,
-    db.liabilityRepayments, db.subscriptions, db.insurancePolicies
-  ];
+  await clearAllData();
 
-  await db.transaction('rw', tables, async () => {
-    for (const table of tables) {
-      await table.clear();
-    }
-
-    if (data.accounts?.length) await db.accounts.bulkAdd(data.accounts);
-    if (data.transactions?.length) await db.transactions.bulkAdd(data.transactions);
-    if (data.categories?.length) await db.categories.bulkAdd(data.categories);
-    if (data.assets?.length) await db.assets.bulkAdd(data.assets);
-    if (data.valuations?.length) await db.valuations.bulkAdd(data.valuations);
-    if (data.snapshots?.length) await db.snapshots.bulkAdd(data.snapshots);
-    if (data.snapshotBalances?.length) await db.snapshotBalances.bulkAdd(data.snapshotBalances);
-    if (data.settings?.length) await db.settings.bulkPut(data.settings);
-    if (data.lendBorrow?.length) await db.lendBorrow.bulkAdd(data.lendBorrow);
-    if (data.lendBorrowRepayments?.length) await db.lendBorrowRepayments.bulkAdd(data.lendBorrowRepayments);
-    if (data.liabilities?.length) await db.liabilities.bulkAdd(data.liabilities);
-    if (data.liabilityRepayments?.length) await db.liabilityRepayments.bulkAdd(data.liabilityRepayments);
-    if (data.subscriptions?.length) await db.subscriptions.bulkAdd(data.subscriptions);
-    if (data.insurancePolicies?.length) await db.insurancePolicies.bulkAdd(data.insurancePolicies);
-  });
-}
-
-// ── Lending & Borrowing Operations ────────────────────────────────────
-
-export async function createLendBorrow(data) {
-  const now = new Date().toISOString();
-  const amount = Math.abs(parseFloat(data.amount));
-  const accountId = parseInt(data.accountId) || null;
-
-  const id = await db.lendBorrow.add({
-    type: data.type, // 'lent' | 'borrowed'
-    personName: (data.personName || '').trim(),
-    amount,
-    outstandingAmount: amount,
-    date: data.date || now,
-    expectedDate: data.expectedDate || '',
-    accountId,
-    purpose: data.purpose || '',
-    contact: data.contact || '',
-    interestRate: parseFloat(data.interestRate) || 0,
-    notes: data.notes || '',
-    status: 'active', // 'active' | 'partial' | 'closed'
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  // Account integration:
-  // When lending: money leaves accountId (e.g. transfer to person / receivable)
-  // When borrowing: money enters accountId
-  // We record an internal transaction linked to this record so accounts reflect true money position
-  if (accountId) {
-    const isLent = data.type === 'lent';
-    await createTransaction({
-      type: isLent ? 'expense' : 'income',
-      amount,
-      description: isLent ? `Lent to ${data.personName}` : `Borrowed from ${data.personName}`,
-      categoryId: null,
-      accountId,
-      date: data.date || now,
-      notes: `Lending/Borrowing principal: ${data.purpose || ''}`,
-      referenceId: id,
-      referenceType: 'lendBorrow',
-    });
-  }
-
-  return id;
-}
-
-export async function recordLendBorrowRepayment(lendBorrowId, repaymentData) {
-  const item = await db.lendBorrow.get(lendBorrowId);
-  if (!item) throw new Error('Record not found');
-
-  const amount = Math.abs(parseFloat(repaymentData.amount));
-  const now = new Date().toISOString();
-  const date = repaymentData.date || now;
-  const accountId = parseInt(repaymentData.accountId) || null;
-
-  const repaymentId = await db.lendBorrowRepayments.add({
-    lendBorrowId,
-    amount,
-    date,
-    accountId,
-    notes: repaymentData.notes || '',
-    createdAt: now,
-  });
-
-  const newOutstanding = Math.max(0, (item.outstandingAmount || item.amount) - amount);
-  const newStatus = newOutstanding === 0 ? 'closed' : 'partial';
-
-  await db.lendBorrow.update(lendBorrowId, {
-    outstandingAmount: newOutstanding,
-    status: newStatus,
-    updatedAt: now,
-  });
-
-  // Balance update:
-  // Repayment of lent money: money enters accountId (income movement)
-  // Repayment of borrowed money: money leaves accountId (expense movement)
-  if (accountId) {
-    const isLent = item.type === 'lent';
-    await createTransaction({
-      type: isLent ? 'income' : 'expense',
-      amount,
-      description: isLent ? `Repayment received from ${item.personName}` : `Repayment paid to ${item.personName}`,
-      categoryId: null,
-      accountId,
-      date,
-      notes: `Repayment for ${item.type} #${lendBorrowId}: ${repaymentData.notes || ''}`,
-      referenceId: repaymentId,
-      referenceType: 'lendBorrowRepayment',
-    });
-  }
-
-  return repaymentId;
-}
-
-export async function getLendBorrowList() {
-  return db.lendBorrow.orderBy('date').reverse().toArray();
-}
-
-export async function getLendBorrowRepayments(lendBorrowId) {
-  return db.lendBorrowRepayments.where('lendBorrowId').equals(lendBorrowId).sortBy('date');
-}
-
-export async function getLendBorrowSummary() {
-  const items = await db.lendBorrow.toArray();
-  let totalLent = 0;
-  let totalLentRecovered = 0;
-  let totalLentOutstanding = 0;
-  let totalBorrowed = 0;
-  let totalBorrowedRepaid = 0;
-  let totalBorrowedOutstanding = 0;
-
-  for (const item of items) {
-    const amt = item.amount || 0;
-    const out = item.outstandingAmount !== undefined ? item.outstandingAmount : amt;
-    const rep = Math.max(0, amt - out);
-
-    if (item.type === 'lent') {
-      totalLent += amt;
-      totalLentOutstanding += out;
-      totalLentRecovered += rep;
-    } else {
-      totalBorrowed += amt;
-      totalBorrowedOutstanding += out;
-      totalBorrowedRepaid += rep;
-    }
-  }
-
-  return {
-    totalLent,
-    totalLentRecovered,
-    totalLentOutstanding,
-    totalBorrowed,
-    totalBorrowedRepaid,
-    totalBorrowedOutstanding,
-  };
-}
-
-// ── Liabilities Management Operations ─────────────────────────────────
-
-export async function createLiability(data) {
-  const now = new Date().toISOString();
-  const originalAmount = Math.abs(parseFloat(data.originalAmount));
-  const currentOutstanding = parseFloat(data.currentOutstanding) !== undefined
-    ? Math.abs(parseFloat(data.currentOutstanding))
-    : originalAmount;
-
-  return db.liabilities.add({
-    lenderName: (data.lenderName || '').trim(),
-    type: data.type || 'personal_loan', // home_loan, personal_loan, car_loan, education_loan, credit_card, business_loan, friend_family, other
-    originalAmount,
-    currentOutstanding,
-    interestRate: parseFloat(data.interestRate) || 0,
-    emiAmount: parseFloat(data.emiAmount) || 0,
-    emiFrequency: data.emiFrequency || 'monthly',
-    nextDueDate: data.nextDueDate || '',
-    startDate: data.startDate || '',
-    endDate: data.endDate || '',
-    accountNumber: data.accountNumber || '',
-    notes: data.notes || '',
-    status: currentOutstanding <= 0 ? 'closed' : 'active',
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
-export async function updateLiability(id, data) {
-  return db.liabilities.update(id, { ...data, updatedAt: new Date().toISOString() });
-}
-
-export async function deleteLiability(id) {
-  return db.liabilities.delete(id);
-}
-
-export async function getLiabilities() {
-  return db.liabilities.toArray();
-}
-
-export async function recordLiabilityRepayment(liabilityId, data) {
-  const liab = await db.liabilities.get(liabilityId);
-  if (!liab) throw new Error('Liability not found');
-
-  const now = new Date().toISOString();
-  const amount = Math.abs(parseFloat(data.amount));
-  const principalPaid = parseFloat(data.principalPaid) || amount;
-  const interestPaid = parseFloat(data.interestPaid) || 0;
-  const date = data.date || now;
-  const accountId = parseInt(data.accountId) || null;
-
-  const repId = await db.liabilityRepayments.add({
-    liabilityId,
-    amount,
-    principalPaid,
-    interestPaid,
-    date,
-    accountId,
-    notes: data.notes || '',
-    createdAt: now,
-  });
-
-  const newOutstanding = Math.max(0, (liab.currentOutstanding || liab.originalAmount) - principalPaid);
-  await db.liabilities.update(liabilityId, {
-    currentOutstanding: newOutstanding,
-    status: newOutstanding === 0 ? 'closed' : 'active',
-    updatedAt: now,
-  });
-
-  // Expense transaction for EMI payment from selected account
-  if (accountId) {
-    await createTransaction({
-      type: 'expense',
-      amount,
-      description: `EMI / Loan Repayment: ${liab.lenderName} (${liab.type.replace('_', ' ')})`,
-      categoryId: null,
-      accountId,
-      date,
-      notes: `Principal: ₹${principalPaid}, Interest: ₹${interestPaid}`,
-      referenceId: repId,
-      referenceType: 'liabilityRepayment',
-    });
-  }
-
-  return repId;
-}
-
-export async function getLiabilityRepayments(liabilityId) {
-  return db.liabilityRepayments.where('liabilityId').equals(liabilityId).sortBy('date');
-}
-
-// ── Subscription Operations ───────────────────────────────────────────
-
-export async function createSubscription(data) {
-  const now = new Date().toISOString();
-  return db.subscriptions.add({
-    name: (data.name || '').trim(),
-    company: (data.company || '').trim(),
-    amount: Math.abs(parseFloat(data.amount)),
-    billingFrequency: data.billingFrequency || 'monthly', // monthly, quarterly, yearly, custom
-    nextDueDate: data.nextDueDate || new Date().toISOString().split('T')[0],
-    accountId: parseInt(data.accountId) || null,
-    autoRenewal: data.autoRenewal !== undefined ? data.autoRenewal : 1,
-    status: data.status || 'active', // active, cancelled
-    category: data.category || 'Subscriptions',
-    notes: data.notes || '',
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
-export async function updateSubscription(id, data) {
-  return db.subscriptions.update(id, { ...data, updatedAt: new Date().toISOString() });
-}
-
-export async function deleteSubscription(id) {
-  return db.subscriptions.delete(id);
-}
-
-export async function getSubscriptions() {
-  return db.subscriptions.toArray();
-}
-
-export async function markSubscriptionPaid(id, paidDate = new Date().toISOString().split('T')[0]) {
-  const sub = await db.subscriptions.get(id);
-  if (!sub) throw new Error('Subscription not found');
-
-  // Record actual expense transaction if accountId is configured
-  if (sub.accountId) {
-    await createTransaction({
-      type: 'expense',
-      amount: sub.amount,
-      description: `Subscription: ${sub.name} (${sub.company || 'Service'})`,
-      categoryId: null,
-      accountId: sub.accountId,
-      date: new Date().toISOString(),
-      notes: `Auto-logged from subscription manager`,
-      referenceId: id,
-      referenceType: 'subscriptionPayment',
-    });
-  }
-
-  // Calculate next due date
-  const currDate = new Date(sub.nextDueDate || paidDate);
-  if (sub.billingFrequency === 'yearly') {
-    currDate.setFullYear(currDate.getFullYear() + 1);
-  } else if (sub.billingFrequency === 'quarterly') {
-    currDate.setMonth(currDate.getMonth() + 3);
-  } else {
-    // monthly default
-    currDate.setMonth(currDate.getMonth() + 1);
-  }
-  const nextDueDate = currDate.toISOString().split('T')[0];
-
-  await db.subscriptions.update(id, {
-    nextDueDate,
-    lastPaidDate: paidDate,
-    updatedAt: new Date().toISOString(),
-  });
-
-  return nextDueDate;
-}
-
-// ── Insurance Policy Operations ───────────────────────────────────────
-
-export async function createInsurancePolicy(data) {
-  const now = new Date().toISOString();
-  return db.insurancePolicies.add({
-    provider: (data.provider || '').trim(),
-    policyName: (data.policyName || '').trim(),
-    policyType: data.policyType || 'health', // health, life, term, vehicle, accident, other
-    policyholder: (data.policyholder || '').trim(),
-    policyNumber: (data.policyNumber || '').trim(),
-    premiumAmount: Math.abs(parseFloat(data.premiumAmount) || 0),
-    paymentFrequency: data.paymentFrequency || 'yearly',
-    startDate: data.startDate || '',
-    nextRenewalDate: data.nextRenewalDate || '',
-    expiryDate: data.expiryDate || '',
-    sumInsured: parseFloat(data.sumInsured) || 0,
-    nominee: data.nominee || '',
-    status: data.status || 'active', // active, expired, lapsed
-    notes: data.notes || '',
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
-export async function updateInsurancePolicy(id, data) {
-  return db.insurancePolicies.update(id, { ...data, updatedAt: new Date().toISOString() });
-}
-
-export async function deleteInsurancePolicy(id) {
-  return db.insurancePolicies.delete(id);
-}
-
-export async function getInsurancePolicies() {
-  return db.insurancePolicies.toArray();
+  if (data.users?.length) await db.users.bulkAdd(data.users);
+  if (data.accounts?.length) await db.accounts.bulkAdd(data.accounts);
+  if (data.transactions?.length) await db.transactions.bulkAdd(data.transactions);
+  if (data.categories?.length) await db.categories.bulkAdd(data.categories);
+  if (data.assets?.length) await db.assets.bulkAdd(data.assets);
+  if (data.valuations?.length) await db.valuations.bulkAdd(data.valuations);
+  if (data.notes?.length) await db.notes.bulkAdd(data.notes);
+  if (data.lendBorrow?.length) await db.lendBorrow.bulkAdd(data.lendBorrow);
+  if (data.lendBorrowRepayments?.length) await db.lendBorrowRepayments.bulkAdd(data.lendBorrowRepayments);
+  if (data.subscriptions?.length) await db.subscriptions.bulkAdd(data.subscriptions);
+  if (data.auditLogs?.length) await db.auditLogs.bulkAdd(data.auditLogs);
+  if (data.userPreferences?.length) await db.userPreferences.bulkAdd(data.userPreferences);
+  if (data.settings?.length) await db.settings.bulkPut(data.settings);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────
@@ -1030,17 +1356,16 @@ export async function setSetting(key, value) {
   return db.settings.put({ key, value });
 }
 
-// ── Sample Data & Reset ───────────────────────────────────────────────
-
 export async function clearAllData() {
   await db.transaction('rw',
     [
-      db.accounts, db.transactions, db.categories, db.assets, db.valuations,
+      db.users, db.accounts, db.transactions, db.categories, db.assets, db.valuations,
       db.snapshots, db.snapshotBalances, db.settings,
       db.lendBorrow, db.lendBorrowRepayments, db.liabilities, db.liabilityRepayments,
-      db.subscriptions, db.insurancePolicies
+      db.subscriptions, db.insurancePolicies, db.notes, db.auditLogs, db.userPreferences
     ],
     async () => {
+      await db.users.clear();
       await db.accounts.clear();
       await db.transactions.clear();
       await db.categories.clear();
@@ -1055,10 +1380,15 @@ export async function clearAllData() {
       await db.liabilityRepayments.clear();
       await db.subscriptions.clear();
       await db.insurancePolicies.clear();
+      await db.notes.clear();
+      await db.auditLogs.clear();
+      await db.userPreferences.clear();
     }
   );
   await seedDefaults();
 }
+
+// ── Realistic Multi-User Sample Data ──────────────────────────────────
 
 export async function seedSampleData() {
   await clearAllData();
@@ -1071,220 +1401,252 @@ export async function seedSampleData() {
     return dt.toISOString();
   };
 
-  // 1. Accounts
-  const accCash = await db.accounts.add({
-    name: 'Cash in Hand', type: 'cash', icon: '💵',
-    openingBalance: 4000, openingBalanceDate: daysAgo(30).split('T')[0],
-    notes: 'Wallet & drawer cash', isActive: 1, sortOrder: 1, createdAt: daysAgo(30), updatedAt: now.toISOString()
+  // Seed User 1: Pam (Pratima)
+  const pamCash = await db.accounts.add({
+    userId: 1, name: 'Cashbox & Purse', type: 'cash', icon: '💵',
+    openingBalance: 4500, openingBalanceDate: daysAgo(30).split('T')[0],
+    notes: 'Household cash drawer', isActive: 1, sortOrder: 1, createdAt: daysAgo(30), updatedAt: now.toISOString()
   });
-  const accHdfc = await db.accounts.add({
-    name: 'HDFC Bank', type: 'bank', icon: '🏦',
-    openingBalance: 65000, openingBalanceDate: daysAgo(30).split('T')[0],
-    notes: 'Salary and primary account', isActive: 1, sortOrder: 2, createdAt: daysAgo(30), updatedAt: now.toISOString()
+  const pamHdfc = await db.accounts.add({
+    userId: 1, name: 'HDFC Savings Bank', type: 'bank', icon: '🏦',
+    openingBalance: 52000, openingBalanceDate: daysAgo(30).split('T')[0],
+    notes: 'Salary and personal savings', isActive: 1, sortOrder: 2, createdAt: daysAgo(30), updatedAt: now.toISOString()
   });
-  const accSbi = await db.accounts.add({
-    name: 'SBI Bank', type: 'bank', icon: '🏛️',
-    openingBalance: 25000, openingBalanceDate: daysAgo(30).split('T')[0],
-    notes: 'Emergency savings', isActive: 1, sortOrder: 3, createdAt: daysAgo(30), updatedAt: now.toISOString()
-  });
-  const accUpi = await db.accounts.add({
-    name: 'PhonePe / UPI', type: 'upi', icon: '📱',
-    openingBalance: 2500, openingBalanceDate: daysAgo(30).split('T')[0],
-    notes: 'Daily merchant scans', isActive: 1, sortOrder: 4, createdAt: daysAgo(30), updatedAt: now.toISOString()
+  const pamUpi = await db.accounts.add({
+    userId: 1, name: 'PhonePe / UPI', type: 'upi', icon: '📱',
+    openingBalance: 3200, openingBalanceDate: daysAgo(30).split('T')[0],
+    notes: 'Daily market & groceries', isActive: 1, sortOrder: 3, createdAt: daysAgo(30), updatedAt: now.toISOString()
   });
 
-  // 2. Categories lookup
   const cats = await db.categories.toArray();
   const catByName = (name) => cats.find(c => c.name.toLowerCase() === name.toLowerCase())?.id || null;
 
-  // 3. Transactions
-  const sampleTxns = [
-    { type: 'income', amount: 75000, description: 'Monthly Salary', categoryId: catByName('Salary'), accountId: accHdfc, date: daysAgo(27) },
-    { type: 'expense', amount: 18000, description: 'Apartment Rent', categoryId: catByName('Rent'), accountId: accHdfc, date: daysAgo(26) },
-    { type: 'transfer', amount: 10000, description: 'ATM Cash Withdrawal', accountId: accHdfc, toAccountId: accCash, date: daysAgo(25) },
-    { type: 'transfer', amount: 5000, description: 'Loaded PhonePe Wallet', accountId: accHdfc, toAccountId: accUpi, date: daysAgo(24) },
-    { type: 'expense', amount: 3450, description: 'Weekly Groceries at D-Mart', categoryId: catByName('Groceries'), accountId: accUpi, date: daysAgo(22) },
-    { type: 'expense', amount: 1450, description: 'Petrol for Bike', categoryId: catByName('Transport'), accountId: accUpi, date: daysAgo(20) },
-    { type: 'expense', amount: 620, description: 'Swiggy Dinner Biryani', categoryId: catByName('Food & Dining'), accountId: accUpi, date: daysAgo(18) },
-    { type: 'expense', amount: 80, description: 'Evening Chai with colleagues', categoryId: catByName('Tea & Snacks'), accountId: accCash, date: daysAgo(17) },
-    { type: 'expense', amount: 1850, description: 'Electricity Bill', categoryId: catByName('Bills & Utilities'), accountId: accHdfc, date: daysAgo(15) },
-    { type: 'expense', amount: 999, description: 'JioFiber Broadband Bill', categoryId: catByName('Bills & Utilities'), accountId: accUpi, date: daysAgo(14) },
-    { type: 'income', amount: 12000, description: 'Freelance Web Design Project', categoryId: catByName('Business Income'), accountId: accHdfc, date: daysAgo(12) },
-    { type: 'expense', amount: 2899, description: 'Amazon Shopping (Headphones)', categoryId: catByName('Shopping'), accountId: accHdfc, date: daysAgo(10) },
-    { type: 'expense', amount: 450, description: 'Medicines from Apollo Pharmacy', categoryId: catByName('Medical'), accountId: accUpi, date: daysAgo(8) },
-    { type: 'expense', amount: 350, description: 'Movie Tickets (BookMyShow)', categoryId: catByName('Entertainment'), accountId: accUpi, date: daysAgo(5) },
-    { type: 'expense', amount: 120, description: 'Chai & Samosa snack', categoryId: catByName('Tea & Snacks'), accountId: accCash, date: daysAgo(3) },
-    { type: 'expense', amount: 1800, description: 'Fresh Vegetables & Milk', categoryId: catByName('Groceries'), accountId: accCash, date: daysAgo(1) },
-    { type: 'income', amount: 1450, description: 'Stock Dividend', categoryId: catByName('Investment Income'), accountId: accHdfc, date: daysAgo(2) },
+  // Transactions for Pam
+  const pamTxns = [
+    { userId: 1, type: 'income', amount: 55000, description: 'Monthly Salary Credit', categoryId: catByName('Salary'), accountId: pamHdfc, date: daysAgo(25) },
+    { userId: 1, type: 'expense', amount: 12000, description: 'House Maintenance & Society', categoryId: catByName('Rent'), accountId: pamHdfc, date: daysAgo(24) },
+    { userId: 1, type: 'transfer', amount: 8000, description: 'Cash Withdrawal for Household', accountId: pamHdfc, toAccountId: pamCash, date: daysAgo(23) },
+    { userId: 1, type: 'expense', amount: 2450, description: 'Fresh Vegetables & Ration', categoryId: catByName('Groceries'), accountId: pamUpi, date: daysAgo(20) },
+    { userId: 1, type: 'expense', amount: 250, description: 'Petrol for Activa', categoryId: catByName('Transport'), accountId: pamCash, date: daysAgo(18) },
+    { userId: 1, type: 'expense', amount: 650, description: 'Family Dinner at Sagar Ratna', categoryId: catByName('Food & Dining'), accountId: pamUpi, date: daysAgo(15) },
+    { userId: 1, type: 'expense', amount: 1250, description: 'Electricity & Gas Bill', categoryId: catByName('Bills & Utilities'), accountId: pamHdfc, date: daysAgo(12) },
+    { userId: 1, type: 'income', amount: 3500, description: 'Freelance Boutique Order', categoryId: catByName('Business Income'), accountId: pamHdfc, date: daysAgo(10) },
+    { userId: 1, type: 'expense', amount: 1899, description: 'Amazon Home Decor', categoryId: catByName('Shopping'), accountId: pamUpi, date: daysAgo(6) },
+    { userId: 1, type: 'expense', amount: 80, description: 'Evening Chai with neighbor', categoryId: catByName('Tea & Snacks'), accountId: pamCash, date: daysAgo(2) },
   ];
 
-  for (const t of sampleTxns) {
-    await db.transactions.add({
-      ...t,
-      isDeleted: 0,
-      createdAt: t.date,
-      updatedAt: t.date,
-    });
+  for (const t of pamTxns) {
+    await db.transactions.add({ ...t, isDeleted: 0, createdAt: t.date, updatedAt: t.date });
   }
 
-  // 4. Assets & Investments
-  const asset1 = await db.assets.add({
-    name: 'Public Provident Fund (PPF)', type: 'ppf',
-    currentValue: 168000, investedAmount: 150000,
-    institution: 'State Bank of India', accountNumber: 'PPF-9823412',
-    notes: '7.1% tax-free compound interest', isActive: 1,
-    createdAt: daysAgo(30), updatedAt: now.toISOString()
+  // Physical Gold & Silver Assets for Pam
+  // 1. Gold Ring (Indicative value, Dashboard ON, Wealth Inclusion OFF -> Tracked Personal Asset!)
+  await db.assets.add({
+    userId: 1,
+    name: 'Gold Ring (Gifted by Family)',
+    category: 'physical',
+    type: 'gold',
+    physicalItemType: 'jewellery',
+    purity: '22K',
+    weightGrams: 5.5,
+    purchaseRatePerGram: 0,
+    investedAmount: 0,
+    currentValue: 39500,
+    currentRatePerGram: 7196,
+    purchaseDate: daysAgo(365).split('T')[0],
+    lastValuationDate: todayStr,
+    valuationStatus: 'indicative',
+    valuationSource: 'Indicative Family Estimate',
+    showOnDashboard: 1,
+    includeInWealth: 0, // EXCLUDED from official wealth, tracked as personal asset!
+    notes: 'Gifted by mom on anniversary. Personal emotional value.',
+    isActive: 1,
+    createdAt: daysAgo(30),
+    updatedAt: now.toISOString()
   });
-  await db.valuations.add({ assetId: asset1, date: daysAgo(30), value: 162000, notes: 'Quarterly update' });
-  await db.valuations.add({ assetId: asset1, date: todayStr, value: 168000, notes: 'Latest balance' });
 
-  const asset2 = await db.assets.add({
-    name: 'Nifty 50 Index Mutual Fund', type: 'mutual_fund',
-    currentValue: 148500, investedAmount: 120000,
-    institution: 'UTI Mutual Fund', accountNumber: 'FOLIO-847291',
-    notes: 'Monthly SIP ₹5,000', isActive: 1,
-    createdAt: daysAgo(30), updatedAt: now.toISOString()
+  // 2. Gold Wedding Necklace (Included in Wealth)
+  await db.assets.add({
+    userId: 1,
+    name: '22K Gold Wedding Necklace',
+    category: 'physical',
+    type: 'gold',
+    physicalItemType: 'jewellery',
+    purity: '22K',
+    weightGrams: 24,
+    purchaseRatePerGram: 5900,
+    makingCharges: 8500,
+    gstAmount: 4500,
+    investedAmount: 154600,
+    currentValue: 172700,
+    currentRatePerGram: 7196,
+    purchaseDate: daysAgo(400).split('T')[0],
+    lastValuationDate: todayStr,
+    valuationStatus: 'verified',
+    valuationSource: 'Tanishq Hallmark & Live 22K Rate',
+    showOnDashboard: 1,
+    includeInWealth: 1, // INCLUDED in official wealth!
+    notes: 'Locker B-12 at HDFC Branch. Pure 916 Hallmark.',
+    isActive: 1,
+    createdAt: daysAgo(30),
+    updatedAt: now.toISOString()
   });
-  await db.valuations.add({ assetId: asset2, date: daysAgo(30), value: 139000, notes: 'Monthly NAV' });
-  await db.valuations.add({ assetId: asset2, date: todayStr, value: 148500, notes: 'Latest NAV' });
 
-  const asset3 = await db.assets.add({
-    name: '24K Digital Gold (10g)', type: 'gold',
-    currentValue: 74200, investedAmount: 62000,
-    institution: 'MMTC-PAMP', accountNumber: 'GOLD-30219',
-    notes: 'Long-term inflation hedge', isActive: 1,
-    createdAt: daysAgo(30), updatedAt: now.toISOString()
+  // 3. Silver Pooja Utensils (Included in Wealth)
+  await db.assets.add({
+    userId: 1,
+    name: '999 Pure Silver Pooja Set (250g)',
+    category: 'physical',
+    type: 'silver',
+    physicalItemType: 'bar',
+    purity: '999',
+    weightGrams: 250,
+    purchaseRatePerGram: 75,
+    investedAmount: 18750,
+    currentValue: 23750,
+    currentRatePerGram: 95,
+    purchaseDate: daysAgo(200).split('T')[0],
+    lastValuationDate: todayStr,
+    valuationStatus: 'market_estimated',
+    valuationSource: 'Live 999 Silver Rate (₹95/g)',
+    showOnDashboard: 1,
+    includeInWealth: 1,
+    notes: 'Pooja room mandir utensils',
+    isActive: 1,
+    createdAt: daysAgo(30),
+    updatedAt: now.toISOString()
   });
-  await db.valuations.add({ assetId: asset3, date: daysAgo(30), value: 69000, notes: 'Gold price update' });
-  await db.valuations.add({ assetId: asset3, date: todayStr, value: 74200, notes: 'Current market rate' });
 
-  const asset4 = await db.assets.add({
-    name: 'HDFC 1-Year Fixed Deposit', type: 'fd',
-    currentValue: 107200, investedAmount: 100000,
-    institution: 'HDFC Bank', accountNumber: 'FD-5010049281',
-    notes: '7.25% p.a. matures in 4 months', isActive: 1,
-    createdAt: daysAgo(30), updatedAt: now.toISOString()
+  // 4. Financial Investment: PPF & Mutual Fund
+  await db.assets.add({
+    userId: 1,
+    name: 'Public Provident Fund (PPF)',
+    category: 'financial',
+    type: 'ppf',
+    institution: 'State Bank of India',
+    investedAmount: 120000,
+    currentValue: 138000,
+    purchaseDate: daysAgo(500).split('T')[0],
+    lastValuationDate: todayStr,
+    valuationStatus: 'verified',
+    valuationSource: 'SBI Passbook Statement',
+    showOnDashboard: 1,
+    includeInWealth: 1,
+    notes: '7.1% tax-free compounding',
+    isActive: 1,
+    createdAt: daysAgo(30),
+    updatedAt: now.toISOString()
   });
-  await db.valuations.add({ assetId: asset4, date: todayStr, value: 107200, notes: 'Accrued interest value' });
 
-  // 5. Initial snapshot
-  const snapshotDate = daysAgo(7).split('T')[0];
-  const snapId = await db.snapshots.add({
-    date: snapshotDate,
-    totalLiquid: 88500,
-    totalAssets: 497900,
-    netWorth: 586400,
-    notes: 'Weekly portfolio snapshot'
-  });
-  await db.snapshotBalances.bulkAdd([
-    { snapshotId: snapId, accountId: accCash, accountName: 'Cash in Hand', balance: 5200 },
-    { snapshotId: snapId, accountId: accHdfc, accountName: 'HDFC Bank', balance: 58100 },
-    { snapshotId: snapId, accountId: accSbi, accountName: 'SBI Bank', balance: 25000 },
-    { snapshotId: snapId, accountId: accUpi, accountName: 'PhonePe / UPI', balance: 2000 },
-  ]);
-
-  // 6. Lending & Borrowing Sample
+  // Lending for Pam
   const lendId = await db.lendBorrow.add({
+    userId: 1,
     type: 'lent',
-    personName: 'Rahul Sharma',
-    contactNumber: '+91 98765 43210',
-    amount: 10000,
-    paidAmount: 4000,
-    outstandingAmount: 6000,
+    personName: 'Cousin Suman',
+    contactNumber: '+91 98111 22334',
+    amount: 5000,
+    paidAmount: 2000,
+    outstandingAmount: 3000,
     date: daysAgo(20).split('T')[0],
-    expectedDate: daysAgo(-10).split('T')[0],
-    accountId: accCash,
-    purpose: 'Emergency medical assistance',
+    expectedDate: daysAgo(-15).split('T')[0],
+    accountId: pamCash,
+    purpose: 'College books and fee assistance',
     status: 'partial',
-    notes: 'Agreed to repay before 10th of next month',
+    notes: 'Agreed to repay ₹2,000 this month',
     createdAt: daysAgo(20),
     updatedAt: daysAgo(5)
   });
   await db.lendBorrowRepayments.add({
+    userId: 1,
     lendBorrowId: lendId,
-    amount: 4000,
+    amount: 2000,
     date: daysAgo(5).split('T')[0],
-    accountId: accCash,
+    accountId: pamCash,
     notes: 'First installment received in cash',
     createdAt: daysAgo(5)
   });
 
-  // 7. Liabilities Sample
-  const liabilityId = await db.liabilities.add({
-    loanName: 'Two-Wheeler Loan (Royal Enfield)',
-    loanType: 'vehicle',
-    lender: 'HDFC Bank',
-    accountNumber: 'LOAN-839219',
-    totalLoanAmount: 90000,
-    currentOutstanding: 42000,
-    totalPaid: 48000,
-    interestRate: 9.5,
-    tenureMonths: 24,
-    monthlyEmi: 4132,
-    startDate: daysAgo(365).split('T')[0],
-    nextDueDate: daysAgo(-7).split('T')[0],
-    status: 'active',
-    notes: 'Auto-debited from HDFC salary account on 5th',
-    createdAt: daysAgo(365),
-    updatedAt: now.toISOString()
-  });
-
-  // 8. Subscriptions Sample
-  const subDueDate1 = new Date();
-  subDueDate1.setDate(subDueDate1.getDate() + 2);
-  const subDueDate2 = new Date();
-  subDueDate2.setDate(subDueDate2.getDate() + 15);
+  // Subscriptions for Pam
+  const subDueDate = new Date();
+  subDueDate.setDate(subDueDate.getDate() + 2);
 
   await db.subscriptions.bulkAdd([
     {
-      name: 'Spotify Premium Family',
-      serviceCategory: 'Music & Streaming',
-      amount: 179,
+      userId: 1,
+      name: 'Netflix 4K Plan',
+      serviceCategory: 'Entertainment',
+      amount: 649,
       billingCycle: 'monthly',
-      paymentAccountId: accHdfc,
-      nextDueDate: subDueDate1.toISOString().split('T')[0],
+      paymentAccountId: pamHdfc,
+      nextDueDate: subDueDate.toISOString().split('T')[0],
       autoRenewal: 1,
       status: 'active',
-      notes: 'Family plan shared with brother',
+      notes: 'Family profile on living room TV',
       createdAt: daysAgo(60),
       updatedAt: now.toISOString()
     },
     {
-      name: 'Netflix 4K Ultra HD',
-      serviceCategory: 'Entertainment',
-      amount: 649,
+      userId: 1,
+      name: 'Spotify Family Music',
+      serviceCategory: 'Music',
+      amount: 179,
       billingCycle: 'monthly',
-      paymentAccountId: accHdfc,
-      nextDueDate: subDueDate2.toISOString().split('T')[0],
+      paymentAccountId: pamHdfc,
+      nextDueDate: daysAgo(-12).split('T')[0],
       autoRenewal: 1,
       status: 'active',
-      notes: 'Auto-renewal via HDFC Credit/Debit card',
-      createdAt: daysAgo(90),
+      notes: 'Monthly playlist subscription',
+      createdAt: daysAgo(60),
       updatedAt: now.toISOString()
     }
   ]);
 
-  // 9. Insurance Sample
-  const insRenewalDate = new Date();
-  insRenewalDate.setMonth(insRenewalDate.getMonth() + 4);
+  // Notes for Pam (Purely Informational!)
+  await db.notes.bulkAdd([
+    {
+      userId: 1,
+      title: 'Locker renewal fees due next month',
+      description: 'Check HDFC locker key and pay annual fee of ₹1,800 before 15th.',
+      category: 'Reminders',
+      date: todayStr,
+      isPinned: 1,
+      showOnDashboard: 1,
+      createdAt: daysAgo(2),
+      updatedAt: todayStr
+    },
+    {
+      userId: 1,
+      title: 'Gold jewellery appraisal slip',
+      description: 'Keep the original Tanishq receipt safely in the blue folder.',
+      category: 'Valuables',
+      date: todayStr,
+      isPinned: 0,
+      showOnDashboard: 1,
+      createdAt: daysAgo(1),
+      updatedAt: todayStr
+    }
+  ]);
 
-  await db.insurancePolicies.add({
-    provider: 'HDFC ERGO',
-    policyName: 'Optima Secure Individual Health Plan',
-    policyType: 'health',
-    policyholder: 'Self',
-    policyNumber: 'HDFC-HL-2948102',
-    sumInsured: 1000000,
-    premiumAmount: 13500,
-    paymentFrequency: 'yearly',
-    startDate: daysAgo(240).split('T')[0],
-    nextRenewalDate: insRenewalDate.toISOString().split('T')[0],
-    expiryDate: insRenewalDate.toISOString().split('T')[0],
-    nominee: 'Parents',
-    status: 'active',
-    notes: 'Cashless hospital network covers Apollo and Fortis',
-    createdAt: daysAgo(240),
-    updatedAt: now.toISOString()
+  // Seed User 2: Nick (Lokesh - Admin)
+  const nickBank = await db.accounts.add({
+    userId: 2, name: 'Nick Salary SBI', type: 'bank', icon: '🏦',
+    openingBalance: 85000, openingBalanceDate: daysAgo(30).split('T')[0],
+    notes: 'Corporate salary account', isActive: 1, sortOrder: 1, createdAt: daysAgo(30), updatedAt: now.toISOString()
   });
-}
 
+  await db.transactions.add({
+    userId: 2, type: 'income', amount: 95000, description: 'Consulting Revenue',
+    categoryId: catByName('Salary'), accountId: nickBank, date: daysAgo(20),
+    isDeleted: 0, createdAt: daysAgo(20), updatedAt: daysAgo(20)
+  });
+
+  // Seed User 3: Rahul
+  await db.accounts.add({
+    userId: 3, name: 'Rahul Wallet & UPI', type: 'upi', icon: '📱',
+    openingBalance: 12000, openingBalanceDate: todayStr,
+    notes: 'Personal spending', isActive: 1, sortOrder: 1, createdAt: now.toISOString(), updatedAt: now.toISOString()
+  });
+
+  setActiveUserId(1); // Set default active user to Pam
+  await logAdminAction('SEED_SAMPLE_DATA', 'Demo data loaded for Pam, Nick and Rahul');
+}
