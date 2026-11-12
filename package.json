@@ -1,7 +1,8 @@
 {
-  "name": "nick-wealth-os",
+  "name": "pam-nick-wealth",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "Pam&Nick Wealth (Wealthbook Lite) — Production-ready multi-user personal finance operating system",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
