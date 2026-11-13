@@ -4,7 +4,7 @@
  */
 import {
   db, seedDefaults,
-  getActiveUserId, setActiveUserId, getCurrentUser, getUsers, authenticateUser, createUser, updateUser,
+  getActiveUserId, setActiveUserId, getCurrentUser, getUsers, authenticateUser, createUser, updateUser, deleteUser,
   logAdminAction, getAuditLogs, getDashboardPreferences, setDashboardPreferences,
   calculateUserWealth, calculateMetalValuation, fetchLiveMetalRates,
   getNotes, createNote, updateNote, deleteNote, getDashboardNotes,
@@ -28,6 +28,9 @@ import { KNOWLEDGE_GUIDES, LEARNING_JOURNEYS } from './knowledge.js';
 import { parseEntry, parseBankSMS } from './parser.js';
 import { askFinancialAssistant, parseReceiptWithAI, setNvidiaApiKey, getNvidiaApiKey } from './nvidia.js';
 import { Chart, registerables } from 'chart.js';
+import {
+  getSupabaseConfig, saveSupabaseConfig, testSupabaseConnection, syncAllWithSupabase, getSupabaseSetupSQL
+} from './supabase.js';
 
 Chart.register(...registerables);
 
@@ -127,8 +130,16 @@ function showModal(html) {
   content.innerHTML = html;
   overlay.classList.remove('hidden');
 
-  const closeBtn = content.querySelector('.modal-close');
-  if (closeBtn) closeBtn.onclick = closeModal;
+  // Attach close handler to ALL modal-close buttons, Cancel buttons, and dismiss triggers
+  content.querySelectorAll('.modal-close, button, [data-dismiss="modal"]').forEach(btn => {
+    const text = btn.textContent.trim().toLowerCase();
+    if (btn.classList.contains('modal-close') || text === 'cancel' || text === '✕' || text === 'close' || btn.hasAttribute('data-dismiss')) {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        closeModal();
+      };
+    }
+  });
   overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
 }
 
@@ -184,6 +195,17 @@ async function showUserSwitchModal() {
 
       <!-- Tab 1: Profile Selection with PIN -->
       <div id="auth-pane-switch">
+        <!-- Quick Admin Login Banner -->
+        <div style="background:linear-gradient(135deg, rgba(212,175,55,0.18), rgba(15,15,30,0.85));border:1.5px solid #fbbf24;border-radius:var(--radius-md);padding:var(--sp-3);margin-bottom:var(--sp-3);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
+          <div>
+            <div style="font-weight:700;color:#fbbf24;font-size:var(--fs-sm);">👑 Nick (Super Admin)</div>
+            <div style="font-size:11px;color:var(--text-muted);">Admin PIN: 0000 · Full Client & User Management</div>
+          </div>
+          <button class="btn btn-sm prompt-pin-btn" data-id="2" data-name="Nick (Admin)" style="background:#fbbf24;color:#000;font-weight:700;border:none;">
+            👑 Login as Admin ➔
+          </button>
+        </div>
+
         <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
           Select account to login. Enter 4-digit PIN to access private financial records.
         </p>
@@ -194,19 +216,22 @@ async function showUserSwitchModal() {
               display:flex;justify-content:space-between;align-items:center;
               padding:var(--sp-3);background:var(--bg-surface);
               border:1.5px solid ${u.id === currentUserId ? 'var(--accent)' : 'var(--border)'};
-              border-radius:var(--radius-md);">
-              <div style="display:flex;align-items:center;gap:var(--sp-3);">
-                <div style="font-size:1.5rem;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
-                <div>
-                  <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)}</div>
-                  <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || u.username} · ${u.role === 'admin' ? 'Super Admin' : 'Family Member'}</div>
+              border-radius:var(--radius-md);flex-wrap:wrap;gap:var(--sp-2);">
+              <div style="display:flex;align-items:center;gap:var(--sp-3);min-width:0;flex:1 1 180px;">
+                <div style="font-size:1.5rem;flex-shrink:0;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
+                <div style="min-width:0;">
+                  <div style="font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.name)}</div>
+                  <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || u.username} · ${u.role === 'admin' ? 'Super Admin' : 'Family Member'} · PIN: ${u.pin}</div>
                 </div>
               </div>
-              <div>
+              <div style="display:flex;align-items:center;gap:var(--sp-2);flex-shrink:0;">
                 ${u.id === currentUserId 
-                  ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE</span>'
-                  : `<button class="btn btn-sm btn-primary prompt-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">Login with PIN ➔</button>`
+                  ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE (YOU)</span>'
+                  : `<button class="btn btn-sm btn-primary prompt-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">Login ➔</button>`
                 }
+                ${(u.role !== 'admin' && u.id !== 1) ? `
+                  <button class="btn btn-sm btn-danger delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" title="Delete user account" style="padding:4px 8px;font-size:11px;">🗑️</button>
+                ` : ''}
               </div>
             </div>
           `).join('')}
@@ -311,6 +336,26 @@ async function showUserSwitchModal() {
     });
   });
 
+  // Delete User Handler
+  $$('.delete-user-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetName = btn.getAttribute('data-name');
+      if (!confirm(`Are you sure you want to permanently delete user "${targetName}" and all their financial accounts and transactions? This cannot be undone.`)) {
+        return;
+      }
+      try {
+        await deleteUser(targetId);
+        showToast(`User ${targetName} deleted successfully`, 'success');
+        closeModal();
+        handleRoute();
+      } catch (err) {
+        alert('Error deleting user: ' + err.message);
+      }
+    });
+  });
+
   // Admin Auditor Inspection Handler
   $$('.admin-inspect-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -331,42 +376,48 @@ async function showUserSwitchModal() {
   // Create User Signup Form Handler
   $('#signup-user-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = $('#new-user-name').value.trim();
-    const email = $('#new-user-email').value.trim();
-    const phone = $('#new-user-phone').value.trim();
-    const pin = $('#new-user-pin').value.trim();
+    try {
+      const name = $('#new-user-name').value.trim();
+      const email = $('#new-user-email').value.trim();
+      const phone = $('#new-user-phone').value.trim();
+      const pin = $('#new-user-pin').value.trim();
 
-    if (!name || !pin) {
-      alert('Name and 4-digit PIN are required.');
-      return;
+      if (!name || !pin) {
+        alert('Name and 4-digit PIN are required.');
+        return;
+      }
+
+      const username = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 100);
+      const newId = await createUser({
+        name,
+        username,
+        email: email || `${username}@pranick.com`,
+        phone,
+        pin,
+        role: 'user',
+        status: 'active',
+        avatar: '👸'
+      });
+
+      // Seed default accounts for new user
+      const now = new Date().toISOString();
+      const today = now.split('T')[0];
+      await db.accounts.bulkAdd([
+        { userId: newId, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 2000, openingBalanceDate: today, notes: 'Personal cash & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+        { userId: newId, name: 'Savings Bank Account', type: 'bank', icon: '🏦', openingBalance: 15000, openingBalanceDate: today, notes: 'Main bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+        { userId: newId, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 1000, openingBalanceDate: today, notes: 'Daily scans & UPI', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+      ]);
+
+      setActiveUserId(newId);
+      const user = await getUserById(newId);
+      await updateUserDisplay(user);
+      closeModal();
+      showToast(`Account created! Welcome, ${name}!`, 'success');
+      handleRoute();
+    } catch (err) {
+      console.error('Error creating user account:', err);
+      alert('Error creating account: ' + err.message);
     }
-
-    const newId = await createUser({
-      name,
-      username: name.toLowerCase().replace(/\s+/g, '_'),
-      email: email || `${name.toLowerCase().replace(/\s+/g, '')}@pranick.com`,
-      phone,
-      pin,
-      role: 'user',
-      status: 'active',
-      avatar: '👸'
-    });
-
-    // Seed default accounts for new user
-    const now = new Date().toISOString();
-    const today = now.split('T')[0];
-    await db.accounts.bulkAdd([
-      { userId: newId, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 2000, openingBalanceDate: today, notes: 'Personal cash & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
-      { userId: newId, name: 'Savings Bank Account', type: 'bank', icon: '🏦', openingBalance: 15000, openingBalanceDate: today, notes: 'Main bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
-      { userId: newId, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 1000, openingBalanceDate: today, notes: 'Daily scans & UPI', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
-    ]);
-
-    setActiveUserId(newId);
-    const user = await getUserById(newId);
-    await updateUserDisplay(user);
-    closeModal();
-    showToast(`Account created! Welcome, ${name}!`, 'success');
-    handleRoute();
   });
 }
 
@@ -814,6 +865,7 @@ async function saveQuickEntry(parsed, inputEl, previewContainer) {
 // ── Transaction Modal (Edit / New) ────────────────────────────────────
 
 async function showTransactionModal(data = {}) {
+  window.showTransactionModalGlobal = (d) => showTransactionModal(d);
   const accounts = await getActiveAccounts();
   const expCats = await getCategories('expense');
   const incCats = await getCategories('income');
@@ -971,6 +1023,13 @@ async function renderHome(container) {
   const netCashFlow = report.netCashFlow;
   const cashFlowClass = netCashFlow >= 0 ? 'savings' : 'expense';
 
+  // Magic 5 Crore Abundance Mode Toggle state
+  const isMagicMode = sessionStorage.getItem('magic_manifestation_mode') === 'true';
+  const displayNetWorth = isMagicMode ? 50000000 : wealth.netWorth;
+  const displayLiquid = isMagicMode ? 6500000 : wealth.liquidMoney;
+  const displayIncome = isMagicMode ? 850000 : report.totalIncome;
+  const displayExpense = isMagicMode ? 180000 : report.totalExpense;
+
   // Sync user display in sidebar and mobile header
   updateUserDisplay(currentUser);
 
@@ -994,53 +1053,125 @@ async function renderHome(container) {
       </div>
     </div>
 
+    <!-- Magic 5 Crore Abundance Mode Switch & Banner -->
+    <div style="background:${isMagicMode ? 'linear-gradient(135deg, rgba(251,191,36,0.22), rgba(124,108,240,0.28))' : 'rgba(255,255,255,0.02)'};border:1.5px solid ${isMagicMode ? '#fbbf24' : 'var(--border)'};border-radius:var(--radius-lg);padding:var(--sp-3-5, 14px);margin-bottom:var(--sp-4);box-shadow:${isMagicMode ? '0 0 25px rgba(251,191,36,0.25)' : 'none'};">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
+        <div style="display:flex;align-items:center;gap:var(--sp-2);min-width:0;flex:1 1 220px;">
+          <span style="font-size:1.6rem;flex-shrink:0;">${isMagicMode ? '✨' : '🔮'}</span>
+          <div style="min-width:0;">
+            <div style="font-weight:800;color:${isMagicMode ? '#fbbf24' : 'var(--text-primary)'};font-size:var(--fs-sm);letter-spacing:0.3px;">
+              ${isMagicMode ? '✨ 5 CRORE ABUNDANCE MANIFESTATION ACTIVE' : 'Magic 5 Crore Abundance Mode'}
+            </div>
+            <div style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${isMagicMode ? 'Living the reality of a joyful, wealthy, debt-free family' : 'Switch dashboard to view your 5 Crore financial freedom report'}
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm" id="toggle-magic-mode-btn" style="background:${isMagicMode ? 'rgba(251,191,36,0.2)' : 'linear-gradient(135deg, #fbbf24, #d97706)'};color:${isMagicMode ? '#fbbf24' : '#000'};border:1px solid #fbbf24;font-weight:700;flex-shrink:0;">
+          ${isMagicMode ? '↩ Back to Actual View' : '✨ Switch to 5 Cr Dashboard'}
+        </button>
+      </div>
+    </div>
+
     ${renderQuickEntry()}
 
     <!-- Centralized Wealth Engine Core Cards -->
     <div class="stats-grid">
       <div class="stat-card balance" style="--card-accent: #d4af37; background: linear-gradient(135deg, rgba(212,175,55,0.15), rgba(15,15,30,0.8));">
         <div class="stat-label">Total Real Net Worth</div>
-        <div class="stat-value" style="color: #f7df79;">${formatCurrency(wealth.netWorth)}</div>
-        <div class="stat-sub">Liquid + Included Assets + Lending - Debt</div>
+        <div class="stat-value" style="color: #f7df79;">${formatCurrency(displayNetWorth)}</div>
+        <div class="stat-sub">${isMagicMode ? '✨ Manifested 5 Crore Target Reached' : 'Liquid + Included Assets + Lending - Debt'}</div>
       </div>
       <div class="stat-card balance" style="--card-accent: var(--accent)">
         <div class="stat-label">Liquid Money (Cash + Bank)</div>
-        <div class="stat-value">${formatCurrency(wealth.liquidMoney)}</div>
-        <div class="stat-sub">Across ${accounts.length} liquid accounts</div>
+        <div class="stat-value">${formatCurrency(displayLiquid)}</div>
+        <div class="stat-sub">${isMagicMode ? 'Private Wealth & Emergency Vault' : `Across ${accounts.length} liquid accounts`}</div>
       </div>
       <div class="stat-card income">
         <div class="stat-label">Income This Month</div>
-        <div class="stat-value">${formatCurrency(report.totalIncome)}</div>
+        <div class="stat-value">${formatCurrency(displayIncome)}</div>
+        <div class="stat-sub">${isMagicMode ? 'Passive dividends & business cashflow' : 'Recorded income'}</div>
       </div>
       <div class="stat-card expense">
         <div class="stat-label">Expenses This Month</div>
-        <div class="stat-value">${formatCurrency(report.totalExpense)}</div>
+        <div class="stat-value">${formatCurrency(displayExpense)}</div>
+        <div class="stat-sub">${isMagicMode ? 'Luxury lifestyle & travel expenses' : 'Recorded expenses'}</div>
       </div>
     </div>
 
-    <!-- Additional Net Worth Details -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
-      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-        <div class="stat-label" style="font-size:11px;">Included Investments</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets || 0)}</div>
-        <div class="stat-sub" style="font-size:10px;">${(wealth.includedAssetsList || []).length} wealth-generating assets</div>
+    ${isMagicMode ? `
+      <!-- Magic 5 Crore Abundance Life & Asset Breakdown -->
+      <div style="background:linear-gradient(135deg, rgba(251,191,36,0.1), rgba(15,15,30,0.9));border:1.5px solid rgba(251,191,36,0.35);border-radius:var(--radius-lg);padding:var(--sp-4);margin-bottom:var(--sp-5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-3);">
+          <h3 style="color:#fbbf24;font-size:var(--fs-base);margin:0;display:flex;align-items:center;gap:6px;">
+            <span>💎</span> 5 Crore Luxury Asset & Life Balance Portfolio
+          </h3>
+          <span style="font-size:11px;background:rgba(251,191,36,0.2);color:#fbbf24;padding:3px 8px;border-radius:12px;font-weight:700;">100% DEBT FREE</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);">
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">🏡 Dream Luxury Villa Estate</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:#fbbf24;">₹1,75,00,000</div>
+            <div class="stat-sub" style="font-size:10px;">Private sanctuary & landscaped gardens</div>
+          </div>
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">📈 High-Growth Equity Portfolio</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:var(--green);">₹1,50,00,000</div>
+            <div class="stat-sub" style="font-size:10px;">Compounding mutual funds & equities</div>
+          </div>
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">🚗 Luxury Vehicles (Porsche + Merc)</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:var(--accent);">₹65,00,000</div>
+            <div class="stat-sub" style="font-size:10px;">100% Paid off luxury dream cars</div>
+          </div>
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">👑 24K Physical Gold & Sovereign</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:#f59e0b;">₹45,00,000</div>
+            <div class="stat-sub" style="font-size:10px;">Pure asset security in private vault</div>
+          </div>
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">🏦 Liquid Reserves & Wealth Bank</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:var(--accent);">₹65,00,000</div>
+            <div class="stat-sub" style="font-size:10px;">Complete liquid peace of mind</div>
+          </div>
+          <div class="stat-card" style="padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);">
+            <div class="stat-label" style="font-size:11px;">🕊️ Debt & Liabilities</div>
+            <div class="stat-value" style="font-size:var(--fs-base);color:var(--green);">₹0.00</div>
+            <div class="stat-sub" style="font-size:10px;">Zero loans · Zero interest paid</div>
+          </div>
+        </div>
+
+        <div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid rgba(251,191,36,0.2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:var(--sp-2);font-size:12px;">
+          <span>🧘 <strong>Runway:</strong> 27+ Years of luxury family living</span>
+          <span>🏖️ <strong>Family Happiness & Peace Score:</strong> 100/100</span>
+          <span>⚡ <strong>Monthly Surplus:</strong> +₹6,70,000/mo</span>
+        </div>
       </div>
-      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-        <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets || 0)}</div>
-        <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
+    ` : `
+      <!-- Additional Net Worth Details -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
+        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+          <div class="stat-label" style="font-size:11px;">Included Investments</div>
+          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets || 0)}</div>
+          <div class="stat-sub" style="font-size:10px;">${(wealth.includedAssetsList || []).length} wealth-generating assets</div>
+        </div>
+        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+          <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
+          <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets || 0)}</div>
+          <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
+        </div>
+        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+          <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
+          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables || 0)}</div>
+          <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
+        </div>
+        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+          <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
+          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities || 0)}</div>
+          <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
+        </div>
       </div>
-      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-        <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables || 0)}</div>
-        <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
-      </div>
-      <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-        <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities || 0)}</div>
-        <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
-      </div>
-    </div>
+    `}
 
     <!-- Notes & Reminders Widget (if enabled) -->
     ${prefs.notes !== false ? `
@@ -1179,6 +1310,12 @@ async function renderHome(container) {
   await initQuickEntry();
 
   // Handlers
+  $('#toggle-magic-mode-btn')?.addEventListener('click', () => {
+    const current = sessionStorage.getItem('magic_manifestation_mode') === 'true';
+    sessionStorage.setItem('magic_manifestation_mode', String(!current));
+    showToast(!current ? '✨ 5 Crore Magic Abundance Mode Activated!' : 'Returned to Actual Personal Records', 'info');
+    handleRoute();
+  });
   $('#home-customize-btn')?.addEventListener('click', () => showDashboardCustomizationModal());
   $('#home-switch-user-btn')?.addEventListener('click', () => showUserSwitchModal());
   $('#home-add-note-btn')?.addEventListener('click', () => showNoteModal());
@@ -3896,11 +4033,49 @@ async function renderSettings(container) {
   const currentUser = await getCurrentUser();
   const allUsers = await getUsers();
   const isAdmin = currentUser && currentUser.role === 'admin';
+  const sbConfig = await getSupabaseConfig();
+  const lastSyncTime = await getSetting('last_cloud_sync_time');
 
   container.innerHTML = `
     <div class="page-header">
       <h1>Settings & Management</h1>
-      <p>PraNick Wealth Agent · User management, modules, and customizations</p>
+      <p>PraNick Wealth Agent · User management, Supabase sync, and customizations</p>
+    </div>
+
+    <!-- Supabase Cloud Synchronization & Multi-Device Sync -->
+    <div class="section" style="background:linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(15, 15, 30, 0.8));border:1.5px solid rgba(16, 185, 129, 0.4);border-radius:var(--radius-lg);padding:var(--sp-4);">
+      <div class="section-header" style="flex-wrap:wrap;gap:var(--sp-2);">
+        <h2 style="color:#10b981;display:flex;align-items:center;gap:var(--sp-2);">
+          <span>☁️</span> Supabase Cloud Sync (2+ Mobiles & Devices)
+        </h2>
+        <span id="supabase-live-status-badge" style="font-size:11px;padding:3px 8px;border-radius:12px;font-weight:700;background:rgba(255,255,255,0.1);color:var(--text-secondary);">
+          ${sbConfig.isConfigured ? '🟢 Configured' : '⚪ Offline / Not Configured'}
+        </span>
+      </div>
+      <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+        Connect your Supabase project to synchronize all accounts, transactions, investments, and users across any mobile or laptop automatically.
+      </p>
+
+      <form id="supabase-config-form" style="margin-bottom:var(--sp-3);">
+        <div class="form-group" style="margin-bottom:var(--sp-2);">
+          <label style="font-size:12px;">Supabase Project URL</label>
+          <input type="url" id="sb-project-url" class="form-control" placeholder="https://your-project-id.supabase.co" value="${escapeHtml(sbConfig.url || '')}" required>
+        </div>
+        <div class="form-group" style="margin-bottom:var(--sp-3);">
+          <label style="font-size:12px;">Supabase Anon / Public API Key</label>
+          <input type="password" id="sb-anon-key" class="form-control" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${escapeHtml(sbConfig.key || '')}" required>
+        </div>
+
+        <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;">
+          <button type="submit" class="btn btn-primary btn-sm" id="btn-save-supabase">💾 Save & Connect Supabase</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-sync-supabase-now" style="border-color:#10b981;color:#10b981;">🔄 Sync Devices Now</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-view-supabase-sql">📋 View Supabase SQL Setup</button>
+        </div>
+      </form>
+
+      <div id="supabase-sync-msg" style="font-size:12px;color:var(--text-muted);">
+        ${lastSyncTime ? `Last synced: ${new Date(lastSyncTime).toLocaleString()}` : 'Not synced yet. Enter your Supabase credentials above to start cross-device sync.'}
+      </div>
     </div>
 
     ${isAdmin ? `
@@ -3923,10 +4098,11 @@ async function renderSettings(container) {
                   <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || 'No contact'} · PIN: ${u.pin} · Role: ${u.role}</div>
                 </div>
               </div>
-              <div style="flex-shrink:0;">
+              <div style="display:flex;gap:var(--sp-2);align-items:center;flex-shrink:0;">
                 ${u.id === currentUser.id 
                   ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">YOU (ADMIN)</span>'
-                  : `<button class="btn btn-sm btn-primary admin-settings-inspect-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">🔍 Inspect Dashboard ➔</button>`
+                  : `<button class="btn btn-sm btn-primary admin-settings-inspect-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">🔍 Inspect Dashboard ➔</button>
+                     ${(u.role !== 'admin' && u.id !== 1) ? `<button class="btn btn-sm btn-danger admin-settings-delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" title="Delete user" style="padding:4px 8px;font-size:11px;">🗑️</button>` : ''}`
                 }
               </div>
             </div>
@@ -4063,19 +4239,118 @@ async function renderSettings(container) {
     }, 100);
   });
 
-  $$('.admin-settings-inspect-btn').forEach(btn => {
+  // Admin Delete User in Settings
+  $$('.admin-settings-delete-user-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const targetId = parseInt(btn.getAttribute('data-id'));
-      const targetUser = await getUserById(targetId);
-      if (!targetUser) return;
-
-      sessionStorage.setItem('admin_viewing_user_id', String(targetId));
-      setActiveUserId(targetId);
-      await updateUserDisplay(targetUser);
-      showToast(`Auditor Mode: Viewing ${targetUser.name}'s Dashboard`, 'info');
-      window.location.hash = '#/';
+      const targetName = btn.getAttribute('data-name');
+      if (!confirm(`Are you sure you want to permanently delete user "${targetName}" and all associated financial data?`)) {
+        return;
+      }
+      try {
+        await deleteUser(targetId);
+        showToast(`User ${targetName} deleted`, 'success');
+        renderSettings(container);
+      } catch (err) {
+        alert('Failed to delete user: ' + err.message);
+      }
     });
   });
+
+  // Supabase Configuration Form
+  $('#supabase-config-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = $('#sb-project-url').value.trim();
+    const key = $('#sb-anon-key').value.trim();
+
+    try {
+      await saveSupabaseConfig(url, key);
+      showToast('Connecting to Supabase...', 'info');
+      const test = await testSupabaseConnection();
+      if (test.success) {
+        showToast('🟢 Supabase Connected! Starting initial sync...', 'success');
+        $('#supabase-live-status-badge').textContent = '🟢 Connected';
+        $('#supabase-live-status-badge').style.color = '#10b981';
+        const syncResult = await syncAllWithSupabase();
+        if (syncResult.success) {
+          showToast('✅ All devices synced with Supabase!', 'success');
+          renderSettings(container);
+        } else {
+          showToast(syncResult.message, 'warning');
+        }
+      } else {
+        alert('Could not connect to Supabase: ' + test.message);
+        $('#supabase-live-status-badge').textContent = '❌ Connection Error';
+        $('#supabase-live-status-badge').style.color = 'var(--red)';
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+
+  // Supabase Sync Now Button
+  $('#btn-sync-supabase-now')?.addEventListener('click', async () => {
+    showToast('🔄 Synchronizing all data with Supabase Cloud...', 'info');
+    try {
+      const syncResult = await syncAllWithSupabase();
+      if (syncResult.success) {
+        showToast('✅ Cloud Sync Complete! All mobile & laptop data updated.', 'success');
+        renderSettings(container);
+      } else {
+        alert('Sync Notice: ' + syncResult.message);
+      }
+    } catch (err) {
+      alert('Sync Failed: ' + err.message);
+    }
+  });
+
+  // Supabase SQL Setup Script Modal
+  $('#btn-view-supabase-sql')?.addEventListener('click', () => {
+    const sql = getSupabaseSetupSQL();
+    showModal(`
+      <div class="modal-header">
+        <h3>📋 Supabase Cloud SQL Setup Script</h3>
+        <button class="modal-close">✕</button>
+      </div>
+      <div style="padding:var(--sp-2) 0;">
+        <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-2);">
+          Copy and run this SQL once inside your <strong>Supabase Dashboard ➔ SQL Editor</strong> to enable instant cross-device sync for all family devices:
+        </p>
+        <textarea id="sb-sql-textarea" class="form-control" style="font-family:monospace;font-size:11px;height:240px;" readonly>${escapeHtml(sql)}</textarea>
+        <div style="margin-top:var(--sp-3);display:flex;justify-content:flex-end;gap:var(--sp-2);">
+          <button type="button" class="btn btn-secondary modal-close">Close</button>
+          <button type="button" class="btn btn-primary" id="btn-copy-sb-sql">📋 Copy SQL to Clipboard</button>
+        </div>
+      </div>
+    `);
+
+    $('#btn-copy-sb-sql')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(sql);
+        showToast('SQL script copied to clipboard!', 'success');
+      } catch (e) {
+        $('#sb-sql-textarea').select();
+        document.execCommand('copy');
+        showToast('SQL script copied!', 'success');
+      }
+    });
+  });
+
+  // Check live connection on settings view open
+  testSupabaseConnection().then(test => {
+    const badge = $('#supabase-live-status-badge');
+    if (badge) {
+      if (test.success) {
+        badge.textContent = '🟢 Connected';
+        badge.style.color = '#10b981';
+      } else if (sbConfig.isConfigured) {
+        badge.textContent = '⚠️ Check Credentials';
+        badge.style.color = '#f59e0b';
+      } else {
+        badge.textContent = '⚪ Offline / Unconfigured';
+      }
+    }
+  }).catch(() => {});
 
   // Category management
   $('#add-exp-cat')?.addEventListener('click', () => showCategoryModal('expense'));
@@ -4278,6 +4553,15 @@ async function init() {
   $('#mobile-user-switch-btn')?.addEventListener('click', () => showUserSwitchModal());
   $('#mobile-profile-trigger')?.addEventListener('click', openManifestation);
 
+  // Global Quick Add Floating Action Button (Attached immediately)
+  const fab = $('#global-fab');
+  if (fab) {
+    fab.addEventListener('click', (e) => {
+      e.preventDefault();
+      showTransactionModal();
+    });
+  }
+
   // Admin Auditor exit button
   $('#admin-exit-view-btn')?.addEventListener('click', async () => {
     sessionStorage.removeItem('admin_viewing_user_id');
@@ -4288,20 +4572,23 @@ async function init() {
     handleRoute();
   });
 
+  // Background Supabase Sync if configured
+  getSupabaseConfig().then(cfg => {
+    if (cfg.isConfigured) {
+      syncAllWithSupabase().then(res => {
+        if (res.success) {
+          console.log('Background Supabase Sync complete');
+        }
+      }).catch(err => console.warn('Background Supabase sync notice:', err));
+    }
+  }).catch(() => {});
+
   // Route handler
   window.addEventListener('hashchange', handleRoute);
   try {
     await handleRoute();
   } catch (routeErr) {
     console.error('Initial route handling error:', routeErr);
-  }
-
-  // Global Quick Add Floating Action Button
-  const fab = $('#global-fab');
-  if (fab) {
-    fab.addEventListener('click', () => {
-      showTransactionModal();
-    });
   }
 
   // Keyboard shortcut: '+' or 'n' or 'N' (when not focused on input) opens Transaction Modal

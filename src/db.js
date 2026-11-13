@@ -112,6 +112,41 @@ export async function updateUser(id, data) {
   return res;
 }
 
+export async function deleteUser(id) {
+  const user = await getUserById(id);
+  if (!user) throw new Error('User not found.');
+  if (user.role === 'admin' && user.id === 1) {
+    throw new Error('Primary Super Admin cannot be deleted.');
+  }
+
+  // Delete all records belonging to this user across all tables
+  await db.transaction('rw', [
+    db.users, db.accounts, db.transactions, db.assets, db.valuations,
+    db.lendBorrow, db.liabilities, db.subscriptions, db.insurancePolicies
+  ], async () => {
+    await db.accounts.where('userId').equals(id).delete();
+    await db.transactions.where('userId').equals(id).delete();
+    await db.assets.where('userId').equals(id).delete();
+    await db.valuations.where('userId').equals(id).delete();
+    await db.lendBorrow.where('userId').equals(id).delete();
+    await db.liabilities.where('userId').equals(id).delete();
+    await db.subscriptions.where('userId').equals(id).delete();
+    await db.insurancePolicies.where('userId').equals(id).delete();
+    await db.users.delete(id);
+  });
+
+  await logAdminAction('DELETE_USER', `Deleted user ${user.name} (ID ${id}) and all associated records`);
+
+  // If deleted user was active, switch back to primary user
+  if (getActiveUserId() === id) {
+    const remainingUser = await db.users.first();
+    if (remainingUser) {
+      setActiveUserId(remainingUser.id);
+    }
+  }
+  return true;
+}
+
 export async function authenticateUser(usernameOrEmail, pinOrPassword) {
   const term = (usernameOrEmail || '').toLowerCase().trim();
   const pin = (pinOrPassword || '').trim();
