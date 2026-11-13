@@ -1361,27 +1361,21 @@ async function renderTransactions(container) {
           <button class="filter-preset-btn" data-preset="custom">Custom Range</button>
         </div>
 
-        <!-- Secondary Filter Controls -->
-        <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;">
-          <div id="custom-date-wrap" style="display:none;gap:var(--sp-2);align-items:center;">
-            <input type="date" id="txn-date-from" class="form-control" style="font-size:12px;padding:4px 8px;">
-            <span style="color:var(--text-secondary);font-size:12px;">to</span>
-            <input type="date" id="txn-date-to" class="form-control" style="font-size:12px;padding:4px 8px;">
-          </div>
-
-          <select id="txn-filter-type" class="form-control" style="max-width:140px;font-size:13px;">
+        <!-- Secondary Filter Controls (Single Row on Mobile & Desktop) -->
+        <div class="txn-filters-single-row">
+          <select id="txn-filter-type" class="txn-row-select" title="Filter by Type">
             <option value="">All Types</option>
             <option value="income">Income (+)</option>
             <option value="expense">Expense (-)</option>
             <option value="transfer">Transfer (⇄)</option>
           </select>
 
-          <select id="txn-filter-account" class="form-control" style="max-width:160px;font-size:13px;">
+          <select id="txn-filter-account" class="txn-row-select" title="Filter by Account">
             <option value="">All Accounts</option>
             ${accounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}
           </select>
 
-          <select id="txn-sort" class="form-control" style="max-width:160px;font-size:13px;">
+          <select id="txn-sort" class="txn-row-select" title="Sort Order">
             <option value="date-desc">Latest first</option>
             <option value="date-asc">Oldest first</option>
             <option value="amount-desc">Highest amount</option>
@@ -1391,7 +1385,13 @@ async function renderTransactions(container) {
             <option value="type-transfer">Transfers first</option>
           </select>
 
-          <button class="btn btn-ghost btn-sm" id="btn-reset-filters" style="margin-left:auto;">↺ Reset Filters</button>
+          <button class="btn btn-ghost btn-sm txn-row-reset-btn" id="btn-reset-filters" title="Reset Filters">↺ Reset</button>
+        </div>
+
+        <div id="custom-date-wrap" style="display:none;gap:var(--sp-2);align-items:center;margin-top:var(--sp-2);">
+          <input type="date" id="txn-date-from" class="form-control" style="font-size:12px;padding:4px 8px;">
+          <span style="color:var(--text-secondary);font-size:12px;">to</span>
+          <input type="date" id="txn-date-to" class="form-control" style="font-size:12px;padding:4px 8px;">
         </div>
       </div>
 
@@ -1921,9 +1921,9 @@ async function renderAccounts(container) {
             <div class="acc-name">${escapeHtml(acc.name)} ${isArchived ? '(Archived)' : ''}</div>
             <div class="acc-type">${acc.type}</div>
             <div class="acc-balance ${bal >= 0 ? 'positive' : 'negative'}">${formatCurrency(bal)}</div>
-            <div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-2);">
-              <button class="btn btn-sm btn-secondary edit-acc-btn" data-acc-id="${acc.id}">Edit</button>
-              ${acc.isActive ? `<button class="btn btn-sm btn-ghost archive-acc-btn" data-acc-id="${acc.id}">Archive</button>` : ''}
+            <div style="margin-top:auto;padding-top:var(--sp-2);display:flex;gap:var(--sp-1-5, 6px);width:100%;">
+              <button class="btn btn-sm btn-secondary edit-acc-btn" data-acc-id="${acc.id}" style="flex:1;min-width:0;padding:4px 6px;font-size:11px;justify-content:center;">Edit</button>
+              ${acc.isActive ? `<button class="btn btn-sm btn-ghost archive-acc-btn" data-acc-id="${acc.id}" style="flex:1;min-width:0;padding:4px 6px;font-size:11px;justify-content:center;">Archive</button>` : ''}
             </div>
           </div>
         `;
@@ -2146,24 +2146,24 @@ async function renderInvestments(container) {
       <div class="accounts-grid">
         ${assets.map(a => `
           <div class="asset-card">
-            <div class="asset-header">
-              <div>
-                <div class="asset-name">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
-                <div class="asset-type">${ASSET_TYPE_LABELS[a.type] || a.type}${a.institution ? ' · ' + escapeHtml(a.institution) : ''}</div>
+            <div class="asset-header" style="margin-bottom:var(--sp-2);">
+              <div style="min-width:0;flex:1;">
+                <div class="asset-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
+                <div class="asset-type" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${ASSET_TYPE_LABELS[a.type] || a.type}${a.institution ? ' · ' + escapeHtml(a.institution) : ''}</div>
               </div>
             </div>
             <div class="asset-value">${formatCurrency(a.currentValue)}</div>
             ${a.investedAmount > 0 ? `
-              <div class="asset-invested">Invested: ${formatCurrency(a.investedAmount)}</div>
-              <div class="asset-gain ${a.currentValue >= a.investedAmount ? 'positive' : 'negative'}">
+              <div class="asset-invested" style="font-size:11px;">Invested: ${formatCurrency(a.investedAmount)}</div>
+              <div class="asset-gain ${a.currentValue >= a.investedAmount ? 'positive' : 'negative'}" style="font-size:11px;">
                 ${a.currentValue >= a.investedAmount ? '▲' : '▼'} ${formatCurrency(Math.abs(a.currentValue - a.investedAmount))}
                 (${((a.currentValue - a.investedAmount) / a.investedAmount * 100).toFixed(1)}%)
               </div>
             ` : ''}
-            <div class="asset-valuation-date">Last valued: ${formatDate(a.lastValuationDate)}</div>
-            <div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-2);">
-              <button class="btn btn-sm btn-primary update-val-btn" data-asset-id="${a.id}">Update Value</button>
-              <button class="btn btn-sm btn-secondary edit-asset-btn" data-asset-id="${a.id}">Edit</button>
+            <div class="asset-valuation-date" style="font-size:10px;">Last valued: ${formatDate(a.lastValuationDate)}</div>
+            <div style="margin-top:auto;padding-top:var(--sp-2);display:flex;gap:var(--sp-1-5, 6px);width:100%;">
+              <button class="btn btn-sm btn-primary update-val-btn" data-asset-id="${a.id}" style="flex:1;min-width:0;padding:4px 6px;font-size:10.5px;justify-content:center;white-space:nowrap;">Update</button>
+              <button class="btn btn-sm btn-secondary edit-asset-btn" data-asset-id="${a.id}" style="flex:1;min-width:0;padding:4px 6px;font-size:10.5px;justify-content:center;">Edit</button>
             </div>
           </div>
         `).join('')}
@@ -3915,15 +3915,15 @@ async function renderSettings(container) {
         </p>
         <div style="display:flex;flex-direction:column;gap:var(--sp-2-5);">
           ${allUsers.map(u => `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);">
-              <div style="display:flex;align-items:center;gap:var(--sp-3);">
-                <div style="font-size:1.6rem;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
-                <div>
-                  <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)} (${escapeHtml(u.username)})</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);flex-wrap:wrap;gap:var(--sp-2);">
+              <div style="display:flex;align-items:center;gap:var(--sp-3);min-width:0;flex:1 1 180px;">
+                <div style="font-size:1.6rem;flex-shrink:0;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
+                <div style="min-width:0;">
+                  <div style="font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(u.name)} (${escapeHtml(u.username)})</div>
                   <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || 'No contact'} · PIN: ${u.pin} · Role: ${u.role}</div>
                 </div>
               </div>
-              <div>
+              <div style="flex-shrink:0;">
                 ${u.id === currentUser.id 
                   ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">YOU (ADMIN)</span>'
                   : `<button class="btn btn-sm btn-primary admin-settings-inspect-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">🔍 Inspect Dashboard ➔</button>`
@@ -3938,18 +3938,22 @@ async function renderSettings(container) {
     <!-- Quick Access Modules (Mobile & Desktop) -->
     <div class="section">
       <div class="section-header"><h2>Wealth Management Modules</h2></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:var(--sp-3);">
-        <a href="#/knowledge" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
-          <span>📚</span> <span>Knowledge Base & Vastu Secrets</span>
+      <div class="modules-grid">
+        <a href="#/knowledge" class="module-link-card">
+          <span class="module-card-icon">📚</span>
+          <span class="module-card-title">Knowledge Base & Vastu</span>
         </a>
-        <a href="#/lending" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
-          <span>🤝</span> <span>Lending & Borrowing Ledger</span>
+        <a href="#/lending" class="module-link-card">
+          <span class="module-card-icon">🤝</span>
+          <span class="module-card-title">Lending & Borrowing Ledger</span>
         </a>
-        <a href="#/liabilities" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
-          <span>🏛️</span> <span>Liabilities & Loans (EMI)</span>
+        <a href="#/liabilities" class="module-link-card">
+          <span class="module-card-icon">🏛️</span>
+          <span class="module-card-title">Liabilities & Loans (EMI)</span>
         </a>
-        <a href="#/insurance" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
-          <span>🛡️</span> <span>Insurance Policies</span>
+        <a href="#/insurance" class="module-link-card">
+          <span class="module-card-icon">🛡️</span>
+          <span class="module-card-title">Insurance Policies</span>
         </a>
       </div>
     </div>
