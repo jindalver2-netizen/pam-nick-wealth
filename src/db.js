@@ -739,6 +739,8 @@ export async function calculateUserWealth(userId = getActiveUserId()) {
   let includedAssets = 0;
   let trackedPersonalAssets = 0;
   let unvaluedAssetsCount = 0;
+  const includedAssetsList = [];
+  const personalAssetsList = [];
 
   for (const asset of assets) {
     const val = asset.currentValue || 0;
@@ -746,8 +748,10 @@ export async function calculateUserWealth(userId = getActiveUserId()) {
 
     if (asset.includeInWealth !== 0) {
       includedAssets += val;
+      includedAssetsList.push(asset);
     } else {
       trackedPersonalAssets += val;
+      personalAssetsList.push(asset);
     }
   }
 
@@ -781,12 +785,17 @@ export async function calculateUserWealth(userId = getActiveUserId()) {
 
   return {
     totalLiquid,
+    liquidMoney: totalLiquid,
     includedAssets,
+    includedAssetsList,
     trackedPersonalAssets,
+    personalAssets: trackedPersonalAssets,
+    personalAssetsList,
     unvaluedAssetsCount,
     lendingReceivables,
     borrowedPayables,
     totalLiabilities,
+    liabilities: totalLiabilities + borrowedPayables,
     totalAssets,
     netWorth,
     formulaExplanation: 'Net Worth = Liquid Money + Included Assets + Lending Receivables - Borrowings & Loans'

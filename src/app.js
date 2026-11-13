@@ -867,22 +867,22 @@ async function renderHome(container) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
       <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
         <div class="stat-label" style="font-size:11px;">Included Investments</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets)}</div>
-        <div class="stat-sub" style="font-size:10px;">${wealth.includedAssetsList.length} wealth-generating assets</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets || 0)}</div>
+        <div class="stat-sub" style="font-size:10px;">${(wealth.includedAssetsList || []).length} wealth-generating assets</div>
       </div>
       <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
         <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets)}</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets || 0)}</div>
         <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
       </div>
       <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
         <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables)}</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables || 0)}</div>
         <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
       </div>
       <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
         <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
-        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities)}</div>
+        <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities || 0)}</div>
         <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
       </div>
     </div>
@@ -897,7 +897,7 @@ async function renderHome(container) {
           <button class="btn btn-sm btn-primary" id="home-add-note-btn">+ Add Note</button>
         </div>
         <div id="home-notes-list">
-          ${notes.length === 0 ? `
+          ${(notes || []).length === 0 ? `
             <div style="font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding:var(--sp-2);">
               No active reminders. Keep financial notes or locker details here (informational only).
             </div>
@@ -946,14 +946,14 @@ async function renderHome(container) {
     ` : ''}
 
     <!-- Investments Section (if enabled) -->
-    ${prefs.investments !== false && wealth.includedAssetsList.length > 0 ? `
+    ${prefs.investments !== false && (wealth.includedAssetsList || []).length > 0 ? `
       <div class="section">
         <div class="section-header">
           <h2>Investments & Wealth Assets</h2>
           <a href="#/investments" class="btn-link">View All →</a>
         </div>
         <div class="accounts-grid">
-          ${wealth.includedAssetsList.slice(0, 4).map(a => `
+          ${(wealth.includedAssetsList || []).slice(0, 4).map(a => `
             <div class="asset-card" onclick="window.location.hash='#/investments'">
               <div class="asset-header">
                 <div>
@@ -975,14 +975,14 @@ async function renderHome(container) {
     ` : ''}
 
     <!-- Tracked Personal Assets Section (if enabled and present) -->
-    ${prefs.personalAssets !== false && wealth.personalAssetsList.length > 0 ? `
+    ${prefs.personalAssets !== false && (wealth.personalAssetsList || []).length > 0 ? `
       <div class="section">
         <div class="section-header">
           <h2>Tracked Personal Assets</h2>
           <span class="tracked-badge" title="Excluded from Net Worth">Personal / Keepsake</span>
         </div>
         <div class="accounts-grid">
-          ${wealth.personalAssetsList.map(a => `
+          ${(wealth.personalAssetsList || []).map(a => `
             <div class="asset-card" style="border: 1px dashed rgba(148, 163, 184, 0.4);" onclick="window.location.hash='#/investments'">
               <div class="asset-header">
                 <div>
@@ -4006,6 +4006,32 @@ async function showCategoryModal(type, data = {}) {
 // ── Initialize App ────────────────────────────────────────────────────
 
 async function init() {
+  // Manifestation Screen logic (attached immediately so Enter button is responsive)
+  const manifestationScreen = $('#manifestation-screen');
+  const enterAppBtn = $('#enter-app-btn');
+  const profileTrigger = $('#sidebar-profile-btn');
+
+  function openManifestation() {
+    if (manifestationScreen) {
+      manifestationScreen.classList.remove('entered');
+    }
+  }
+
+  function closeManifestation() {
+    if (manifestationScreen) {
+      manifestationScreen.classList.add('entered');
+      sessionStorage.setItem('pam_nick_entered_engine', 'true');
+    }
+  }
+
+  if (enterAppBtn) {
+    enterAppBtn.addEventListener('click', closeManifestation);
+  }
+
+  if (profileTrigger) {
+    profileTrigger.addEventListener('click', openManifestation);
+  }
+
   // Seed default data
   await seedDefaults();
 
@@ -4034,38 +4060,14 @@ async function init() {
   // User Switcher triggers
   $('#user-switcher-btn')?.addEventListener('click', () => showUserSwitchModal());
   $('#mobile-user-switch-btn')?.addEventListener('click', () => showUserSwitchModal());
-  $('#mobile-profile-trigger')?.addEventListener('click', () => {
-    $('#manifestation-screen')?.classList.remove('entered');
-  });
+  $('#mobile-profile-trigger')?.addEventListener('click', openManifestation);
 
   // Route handler
   window.addEventListener('hashchange', handleRoute);
-  await handleRoute();
-
-  // Manifestation Screen logic
-  const manifestationScreen = $('#manifestation-screen');
-  const enterAppBtn = $('#enter-app-btn');
-  const profileTrigger = $('#sidebar-profile-btn');
-
-  function openManifestation() {
-    if (manifestationScreen) {
-      manifestationScreen.classList.remove('entered');
-    }
-  }
-
-  function closeManifestation() {
-    if (manifestationScreen) {
-      manifestationScreen.classList.add('entered');
-      sessionStorage.setItem('nick_entered_engine', 'true');
-    }
-  }
-
-  if (enterAppBtn) {
-    enterAppBtn.addEventListener('click', closeManifestation);
-  }
-
-  if (profileTrigger) {
-    profileTrigger.addEventListener('click', openManifestation);
+  try {
+    await handleRoute();
+  } catch (routeErr) {
+    console.error('Initial route handling error:', routeErr);
   }
 
   // Global Quick Add Floating Action Button
