@@ -220,9 +220,8 @@ export async function seedDefaults() {
   if (userCount === 0) {
     const now = new Date().toISOString();
     await db.users.bulkAdd([
-      { id: 1, username: 'pam', name: 'Pam (Pratima)', email: 'pam@wealth.local', role: 'user', pin: '1234', status: 'active', avatar: '👩', createdAt: now, updatedAt: now },
-      { id: 2, username: 'nick', name: 'Nick (Lokesh)', email: 'nick@wealth.local', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
-      { id: 3, username: 'rahul', name: 'Rahul', email: 'rahul@wealth.local', role: 'user', pin: '1111', status: 'active', avatar: '🧑', createdAt: now, updatedAt: now },
+      { id: 1, username: 'pratima', name: 'Pratima', email: 'pratima@pranick.com', phone: '', role: 'user', pin: '1234', status: 'active', avatar: '👸', createdAt: now, updatedAt: now },
+      { id: 2, username: 'nick', name: 'Lokesh Jindal (Admin)', email: 'dmlxj007@gmail.com', phone: '', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
     ]);
   }
 

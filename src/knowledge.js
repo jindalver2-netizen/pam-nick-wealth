@@ -223,6 +223,59 @@ Golden Rule: **Jitna kam samay, utna safe instrument.**
    - Kahan rakhein: Nifty 50 Index Mutual Funds, PPF, NPS.
    - Lambe samay mein market ka utaar-chadhaw shant ho jata hai aur wealth kai guna ho jaati hai!
     `
+  },
+  {
+    id: 'guide-9',
+    number: '09',
+    title: 'Dhan Aakarshan, Vastu & Energy Secrets',
+    subtitle: 'Ghar aur locker mein dhan aakarshit karne ke 5 pramanit Vastu niyam',
+    readTime: '4 min read',
+    icon: '✨',
+    tag: 'Energy & Vastu',
+    summary: 'Paisa keval mehnat se nahi, sahi urja aur environment se bhi aakarshit hota hai. Ye 5 Vastu niyam har ameer ghar mein follow hote hain.',
+    content: `
+### Dhan Ke 5 Maha Vastu Niyam
+1. **Kuber Disha (North / Uttar):**
+   - Uttar disha Bhagwan Kuber ki disha hoti hai jahan se cash inflow aata hai.
+   - Is disha ko hamesha saaf-suthra, halka aur clutter-free rakhein.
+   - Yahan blue ya green colour ka chhota water fountain ya money plant lagana cashflow badhata hai.
+2. **Tijori / Cash Locker Ki Sahi Disha:**
+   - Tijori ya gold locker ko hamesha **South-West (Dakshin-Pashchim)** kone mein rakhein, aur uska darwaza **North (Uttar)** ki taraf khulna chahiye.
+   - Tijori ke andar ek red ya yellow silk kapda bicha kar us par Shree Yantra ya Kuber Yantra aur chandi ka sikka rakhein.
+3. **Pani Ka Risna (Water Leakage) = Dhan Ka Nuksan:**
+   - Agar ghar mein koi nal (tap) ya pipe dheere-dheere tapak raha hai, to Vastu ke mutabik wo paisa anchahe kharchon mein beh jata hai. Isko 24 ghante mein theek karayein.
+4. **Namak Se Negativity Door Karein (Rock Salt Cleanse):**
+   - Hafte mein kam se kam 1 baar ghar mein pocha lagate samay paani mein thoda sendha namak (rock salt) daalein. Ye purani daridrata aur negative energy ko absorb kar leta hai.
+5. **Main Gate Ka Swaagat (Gateway of Abundance):**
+   - Ghar ka main gate hamesha well-lit, saaf aur sugandhit hona chahiye. Gate ke paas jhoothe joote-chappal ka dher na lagayein, kyunki Mata Lakshmi ka pravesh mukhya dwar se hi hota hai.
+    `
+  },
+  {
+    id: 'guide-10',
+    number: '10',
+    title: '100% Proved Manifestation Ritual & Affirmations',
+    subtitle: 'Subconscious mind ko ameer banane ka 3-6-9 ritual aur daily wealth mantras',
+    readTime: '3 min read',
+    icon: '🔮',
+    tag: 'Manifestation',
+    summary: 'Subconscious mind wahi reality create karta hai jo aap sach manate hain. In 5 daily affirmations se dhan chumbak ki tarah aakarshit hota hai.',
+    content: `
+### 3-6-9 Wealth Manifestation Ritual (Nikola Tesla Method)
+1. **Subah Uthkar 3 Baar:** Apne dil par hath rakhkar poore vishwas ke sath kahein: *"Main aur meri family PraNick Wealth ke ashirwad se anant samriddhi aur sampannata mein jee rahe hain."*
+2. **Dophar Mein 6 Baar:** Apne bank accounts aur future luxury villa/car ka aabhaas karein aur likhein: *"Mujhe har disha se lagatar aur aasaani se dhan prapt ho raha hai."*
+3. **Sone Se Pehle 9 Baar:** Poore din ke aashirwad ke liye shukrana karein: *"Thank You Universe, meri har zaroorat se 10 guna zyada dhan mere pass har pal maujood hai."*
+
+---
+
+### 5 Daily Power Affirmations (Har Subah Padhein)
+1. 💎 **"Mere jeevan mein sukh, samriddhi aur luxury swabhavik roop se behti hai."**
+2. ⚡ **"Mera banaya har ek rupaya multiply hoke 10 guna wapas meri family ke paas aata hai."**
+3. 👑 **"Main azaad hoon, ameer hoon, aur meri family har tarah se surakshit aur khushhaal hai."**
+4. 🏡 **"Humara sapno ka luxury ghar, gaadiyan aur safalta humare jeevan ka hissa ban chuki hain."**
+5. 💰 **"Main dhan ko aadar deta hoon, aur dhan mera aadar karke mere paas tezi se aata hai."**
+
+*PraNick Wealth Agent har roz aapke is vishwas ko reality mein badal raha hai.*
+    `
   }
 ];
 

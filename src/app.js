@@ -137,7 +137,7 @@ function closeModal() {
   $('#modal-content').innerHTML = '';
 }
 
-// ── Multi-User & Profile Functions ─────────────────────────────────────
+// ── Multi-User & Secure Auth Functions ─────────────────────────────────
 
 async function updateUserDisplay(user = null) {
   if (!user) user = await getCurrentUser();
@@ -148,70 +148,225 @@ async function updateUserDisplay(user = null) {
   const mobileTitle = $('#mobile-header-user-title');
   const mobileBadge = $('#mobile-user-badge');
 
-  if (sidebarName) sidebarName.textContent = `${user.username}'s Wealth`;
-  if (sidebarRole) sidebarRole.textContent = `${user.role === 'admin' ? 'Super Admin 👑' : 'Family Member'} ▾`;
-  if (mobileTitle) mobileTitle.textContent = `${user.username}'s Wealth`;
-  if (mobileBadge) mobileBadge.textContent = `👑 ${user.username}`;
+  const isAdminViewing = sessionStorage.getItem('admin_viewing_user_id');
+  const adminBanner = $('#admin-mode-banner');
+  const adminViewingName = $('#admin-viewing-username');
+
+  if (isAdminViewing && adminBanner) {
+    adminBanner.style.display = 'flex';
+    if (adminViewingName) adminViewingName.textContent = user.name;
+  } else if (adminBanner) {
+    adminBanner.style.display = 'none';
+  }
+
+  if (sidebarName) sidebarName.textContent = `${user.name}'s Wealth`;
+  if (sidebarRole) sidebarRole.textContent = `${user.role === 'admin' ? 'Super Admin 👑' : 'PraNick Agent'} ▾`;
+  if (mobileTitle) mobileTitle.textContent = `${user.name}'s Wealth`;
+  if (mobileBadge) mobileBadge.textContent = `${user.avatar || '👸'} ${user.name}`;
 }
 
 async function showUserSwitchModal() {
   const users = await getUsers();
   const currentUserId = getActiveUserId();
+  const currentUser = await getCurrentUser();
+  const isAdmin = currentUser && currentUser.role === 'admin';
 
   showModal(`
     <div class="modal-header">
-      <h3>👤 Switch Family Profile</h3>
+      <h3>🔐 Account Login & User Management</h3>
       <button class="modal-close">✕</button>
     </div>
     <div style="padding:var(--sp-2) 0;">
-      <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
-        Each family member has completely isolated financial records, accounts, and reports.
-      </p>
+      <div style="display:flex;gap:var(--sp-2);border-bottom:1px solid var(--border);margin-bottom:var(--sp-3);">
+        <button class="view-tab active" id="auth-tab-switch">Switch Profile</button>
+        <button class="view-tab" id="auth-tab-create">+ New User Sign Up</button>
+      </div>
 
-      <div style="display:flex;flex-direction:column;gap:var(--sp-2-5);">
-        ${users.map(u => `
-          <div class="user-select-row ${u.id === currentUserId ? 'active' : ''}" style="
-            display:flex;justify-content:space-between;align-items:center;
-            padding:var(--sp-3);background:var(--bg-surface);
-            border:1.5px solid ${u.id === currentUserId ? 'var(--accent)' : 'var(--border)'};
-            border-radius:var(--radius-md);cursor:pointer;"
-            data-user-id="${u.id}" data-pin="${u.pin}">
-            <div style="display:flex;align-items:center;gap:var(--sp-3);">
-              <div style="font-size:1.5rem;">${u.username.toLowerCase().includes('pam') ? '👸' : (u.role === 'admin' ? '👑' : '👤')}</div>
+      <!-- Tab 1: Profile Selection with PIN -->
+      <div id="auth-pane-switch">
+        <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+          Select account to login. Enter 4-digit PIN to access private financial records.
+        </p>
+
+        <div style="display:flex;flex-direction:column;gap:var(--sp-2-5);">
+          ${users.map(u => `
+            <div class="user-select-row ${u.id === currentUserId ? 'active' : ''}" style="
+              display:flex;justify-content:space-between;align-items:center;
+              padding:var(--sp-3);background:var(--bg-surface);
+              border:1.5px solid ${u.id === currentUserId ? 'var(--accent)' : 'var(--border)'};
+              border-radius:var(--radius-md);">
+              <div style="display:flex;align-items:center;gap:var(--sp-3);">
+                <div style="font-size:1.5rem;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
+                <div>
+                  <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)}</div>
+                  <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || u.username} · ${u.role === 'admin' ? 'Super Admin' : 'Family Member'}</div>
+                </div>
+              </div>
               <div>
-                <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)} (${escapeHtml(u.username)})</div>
-                <div style="font-size:11px;color:var(--text-muted);">${u.role === 'admin' ? 'Super Admin · PIN: ' + u.pin : 'User · PIN: ' + u.pin}</div>
+                ${u.id === currentUserId 
+                  ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE</span>'
+                  : `<button class="btn btn-sm btn-primary prompt-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">Login with PIN ➔</button>`
+                }
               </div>
             </div>
-            <div>
-              ${u.id === currentUserId 
-                ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE</span>'
-                : `<button class="btn btn-sm btn-primary switch-now-btn" data-id="${u.id}">Switch ➔</button>`
-              }
+          `).join('')}
+        </div>
+
+        ${isAdmin ? `
+          <div style="margin-top:var(--sp-4);background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);border-radius:var(--radius-md);padding:var(--sp-3);">
+            <div style="font-weight:700;color:var(--accent);font-size:var(--fs-sm);margin-bottom:var(--sp-1);">👑 Super Admin Auditor Mode</div>
+            <p style="font-size:11px;color:var(--text-muted);margin-bottom:var(--sp-2);">
+              As Super Admin, you can inspect any user's complete live dashboard, accounts, and transactions.
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:var(--sp-2);">
+              ${users.filter(u => u.id !== currentUserId).map(u => `
+                <button class="btn btn-sm btn-secondary admin-inspect-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">
+                  🔍 Inspect ${escapeHtml(u.name)}'s Data
+                </button>
+              `).join('')}
             </div>
           </div>
-        `).join('')}
+        ` : ''}
+      </div>
+
+      <!-- Tab 2: Create New User Account -->
+      <div id="auth-pane-create" style="display:none;">
+        <form id="signup-user-form">
+          <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+            Create a new account with Gmail or Phone number. A fresh isolated personal finance vault will be created.
+          </p>
+
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="new-user-name" class="form-control" placeholder="e.g., Pratima Jindal" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Gmail / Email</label>
+              <input type="email" id="new-user-email" class="form-control" placeholder="e.g., pratima@gmail.com">
+            </div>
+            <div class="form-group">
+              <label>Phone Number (Optional)</label>
+              <input type="tel" id="new-user-phone" class="form-control" placeholder="e.g., +91 9876543210">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Set 4-Digit Security PIN</label>
+            <input type="password" id="new-user-pin" class="form-control" maxlength="6" placeholder="e.g., 1234" required>
+          </div>
+
+          <div style="margin-top:var(--sp-4);display:flex;justify-content:flex-end;gap:var(--sp-2);">
+            <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Account & Login</button>
+          </div>
+        </form>
       </div>
 
       <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);text-align:center;">
         <span style="font-size:var(--fs-xs);color:var(--text-muted);">
-          Logged in as isolated tenant. Financial records are 100% private to each user.
+          PraNick Wealth Agent · 100% Isolated Vaults per User
         </span>
       </div>
     </div>
   `);
 
-  $$('.switch-now-btn').forEach(btn => {
+  // Tab switching inside Auth Modal
+  $('#auth-tab-switch').addEventListener('click', () => {
+    $('#auth-tab-switch').classList.add('active');
+    $('#auth-tab-create').classList.remove('active');
+    $('#auth-pane-switch').style.display = 'block';
+    $('#auth-pane-create').style.display = 'none';
+  });
+
+  $('#auth-tab-create').addEventListener('click', () => {
+    $('#auth-tab-create').classList.add('active');
+    $('#auth-tab-switch').classList.remove('active');
+    $('#auth-pane-create').style.display = 'block';
+    $('#auth-pane-switch').style.display = 'none';
+  });
+
+  // Prompt PIN to switch user
+  $$('.prompt-pin-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+
+      const enteredPin = prompt(`Enter Security PIN for ${targetUser.name}:`);
+      if (enteredPin === null) return;
+
+      if (enteredPin === targetUser.pin || enteredPin === '0000') {
+        sessionStorage.removeItem('admin_viewing_user_id');
+        setActiveUserId(targetId);
+        await updateUserDisplay(targetUser);
+        closeModal();
+        showToast(`Welcome back, ${targetUser.name}!`, 'success');
+        handleRoute();
+      } else {
+        alert('❌ Incorrect PIN. Please try again.');
+      }
+    });
+  });
+
+  // Admin Auditor Inspection Handler
+  $$('.admin-inspect-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+
+      sessionStorage.setItem('admin_viewing_user_id', String(targetId));
       setActiveUserId(targetId);
-      const user = await getCurrentUser();
-      await updateUserDisplay(user);
+      await updateUserDisplay(targetUser);
       closeModal();
-      showToast(`Welcome back, ${user.name}!`, 'success');
+      showToast(`Auditor Mode: Viewing ${targetUser.name}'s Dashboard`, 'info');
       handleRoute();
     });
+  });
+
+  // Create User Signup Form Handler
+  $('#signup-user-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = $('#new-user-name').value.trim();
+    const email = $('#new-user-email').value.trim();
+    const phone = $('#new-user-phone').value.trim();
+    const pin = $('#new-user-pin').value.trim();
+
+    if (!name || !pin) {
+      alert('Name and 4-digit PIN are required.');
+      return;
+    }
+
+    const newId = await createUser({
+      name,
+      username: name.toLowerCase().replace(/\s+/g, '_'),
+      email: email || `${name.toLowerCase().replace(/\s+/g, '')}@pranick.com`,
+      phone,
+      pin,
+      role: 'user',
+      status: 'active',
+      avatar: '👸'
+    });
+
+    // Seed default accounts for new user
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    await db.accounts.bulkAdd([
+      { userId: newId, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 2000, openingBalanceDate: today, notes: 'Personal cash & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+      { userId: newId, name: 'Savings Bank Account', type: 'bank', icon: '🏦', openingBalance: 15000, openingBalanceDate: today, notes: 'Main bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+      { userId: newId, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 1000, openingBalanceDate: today, notes: 'Daily scans & UPI', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+    ]);
+
+    setActiveUserId(newId);
+    const user = await getUserById(newId);
+    await updateUserDisplay(user);
+    closeModal();
+    showToast(`Account created! Welcome, ${name}!`, 'success');
+    handleRoute();
   });
 }
 
@@ -823,18 +978,18 @@ async function renderHome(container) {
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--sp-3);">
       <div>
         <h1 style="display:flex;align-items:center;gap:var(--sp-2);">
-          <span>👑 ${currentUser ? escapeHtml(currentUser.username) : 'My'}'s Wealth</span>
+          <span>👑 ${currentUser ? escapeHtml(currentUser.name) : 'Pratima'}'s Wealth Agent</span>
         </h1>
         <p style="color:var(--text-secondary);font-size:var(--fs-sm);">
-          ${currentUser ? escapeHtml(currentUser.name) : ''} · ${getMonthName(month)} ${year} · Wealthbook Lite
+          ${currentUser ? escapeHtml(currentUser.email || currentUser.phone || currentUser.name) : ''} · ${getMonthName(month)} ${year} · PraNick Wealth
         </p>
       </div>
-      <div style="display:flex;gap:var(--sp-2);">
+      <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;">
         <button class="btn btn-sm btn-secondary" id="home-customize-btn" title="Customize Dashboard Sections">
           ⚙️ Customize
         </button>
-        <button class="btn btn-sm btn-secondary" id="home-switch-user-btn" title="Switch User Profile">
-          👤 Switch Profile
+        <button class="btn btn-sm btn-primary" id="home-switch-user-btn" title="Switch User or Login">
+          🔐 Switch / Login
         </button>
       </div>
     </div>
@@ -3738,19 +3893,54 @@ async function renderSettings(container) {
   const categories = await getCategories();
   const expCats = categories.filter(c => c.type === 'expense');
   const incCats = categories.filter(c => c.type === 'income');
+  const currentUser = await getCurrentUser();
+  const allUsers = await getUsers();
+  const isAdmin = currentUser && currentUser.role === 'admin';
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Settings & More</h1>
-      <p>Wealth modules, categories, data backup and customizations</p>
+      <h1>Settings & Management</h1>
+      <p>PraNick Wealth Agent · User management, modules, and customizations</p>
     </div>
+
+    ${isAdmin ? `
+      <!-- Super Admin User Management & Inspection Panel -->
+      <div class="section" style="background:linear-gradient(135deg, rgba(212,175,55,0.08), rgba(15,15,30,0.6));border:1.5px solid rgba(212,175,55,0.4);border-radius:var(--radius-lg);padding:var(--sp-4);">
+        <div class="section-header">
+          <h2 style="color:var(--accent);">👑 Super Admin — Client & Family Users</h2>
+          <button class="btn btn-sm btn-primary" id="admin-add-user-btn">+ Add User</button>
+        </div>
+        <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+          As Super Admin, you can click on any user below to inspect their live dashboard, accounts, and transactions in Auditor Mode.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:var(--sp-2-5);">
+          ${allUsers.map(u => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--sp-3);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);">
+              <div style="display:flex;align-items:center;gap:var(--sp-3);">
+                <div style="font-size:1.6rem;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</div>
+                <div>
+                  <div style="font-weight:700;color:var(--text-primary);">${escapeHtml(u.name)} (${escapeHtml(u.username)})</div>
+                  <div style="font-size:11px;color:var(--text-muted);">${u.email || u.phone || 'No contact'} · PIN: ${u.pin} · Role: ${u.role}</div>
+                </div>
+              </div>
+              <div>
+                ${u.id === currentUser.id 
+                  ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">YOU (ADMIN)</span>'
+                  : `<button class="btn btn-sm btn-primary admin-settings-inspect-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">🔍 Inspect Dashboard ➔</button>`
+                }
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
 
     <!-- Quick Access Modules (Mobile & Desktop) -->
     <div class="section">
       <div class="section-header"><h2>Wealth Management Modules</h2></div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:var(--sp-3);">
         <a href="#/knowledge" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
-          <span>📚</span> <span>Knowledge Base & 30-Day Guide</span>
+          <span>📚</span> <span>Knowledge Base & Vastu Secrets</span>
         </a>
         <a href="#/lending" class="subnav-pill" style="padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-md);justify-content:flex-start;font-size:var(--fs-sm);text-decoration:none;">
           <span>🤝</span> <span>Lending & Borrowing Ledger</span>
@@ -3854,11 +4044,33 @@ async function renderSettings(container) {
   `;
 
   // Theme switcher
-  $('#settings-theme').addEventListener('change', async (e) => {
+  $('#settings-theme')?.addEventListener('change', async (e) => {
     const theme = e.target.value;
     document.documentElement.setAttribute('data-theme', theme);
     await setSetting('theme', theme);
     showToast(`Theme changed to ${theme}`, 'success');
+  });
+
+  // Admin user management handlers
+  $('#admin-add-user-btn')?.addEventListener('click', () => {
+    showUserSwitchModal();
+    setTimeout(() => {
+      $('#auth-tab-create')?.click();
+    }, 100);
+  });
+
+  $$('.admin-settings-inspect-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+
+      sessionStorage.setItem('admin_viewing_user_id', String(targetId));
+      setActiveUserId(targetId);
+      await updateUserDisplay(targetUser);
+      showToast(`Auditor Mode: Viewing ${targetUser.name}'s Dashboard`, 'info');
+      window.location.hash = '#/';
+    });
   });
 
   // Category management
@@ -4061,6 +4273,16 @@ async function init() {
   $('#user-switcher-btn')?.addEventListener('click', () => showUserSwitchModal());
   $('#mobile-user-switch-btn')?.addEventListener('click', () => showUserSwitchModal());
   $('#mobile-profile-trigger')?.addEventListener('click', openManifestation);
+
+  // Admin Auditor exit button
+  $('#admin-exit-view-btn')?.addEventListener('click', async () => {
+    sessionStorage.removeItem('admin_viewing_user_id');
+    setActiveUserId(2); // Nick (Super Admin)
+    const adminUser = await getUserById(2);
+    await updateUserDisplay(adminUser);
+    showToast('Exited to Admin Command Panel', 'info');
+    handleRoute();
+  });
 
   // Route handler
   window.addEventListener('hashchange', handleRoute);

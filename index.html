@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Pam&Nick Wealth — Your Money. Your Control.</title>
-  <meta name="description" content="Pam&Nick Wealth (Wealthbook Lite) — Premium personal finance engine for individuals and families.">
+  <title>PraNick Wealth Agent — Your Personal Financial Command & Abundance Engine</title>
+  <meta name="description" content="PraNick Wealth Agent — Luxury family wealth command center, manifestation & cashflow tracking.">
   <meta name="theme-color" content="#0a0a1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,35 +18,35 @@
 <body>
   <!-- Wealth Manifestation Cover / Splash -->
   <div id="manifestation-screen" class="manifestation-screen">
-    <div class="manifestation-backdrop" style="background-image: url('/nick-wealth.jpg')"></div>
+    <div class="manifestation-backdrop" style="background-image: url('/pranick-manifestation.jpg')"></div>
     <div class="manifestation-glass-overlay"></div>
     
     <div class="manifestation-card">
       <div class="manifestation-portrait-wrap">
-        <img src="/nick-wealth.jpg" alt="Pam & Nick Wealth" class="manifestation-portrait">
-        <div class="manifestation-portrait-badge">💎 PAM & NICK WEALTH</div>
+        <img src="/pranick-manifestation.jpg" alt="PraNick Wealth Agent" class="manifestation-portrait">
+        <div class="manifestation-portrait-badge">💎 PRANICK WEALTH AGENT</div>
       </div>
       
       <div class="manifestation-details">
-        <div class="manifestation-eyebrow">WEALTHBOOK LITE 2.0</div>
+        <div class="manifestation-eyebrow">MANIFESTATION & WEALTH COMMAND 2.0</div>
         <h1 class="manifestation-title">Architects of Abundance</h1>
         
         <p class="manifestation-mantra">
-          "Wealth, prosperity, and financial peace flow effortlessly into our life. Every rupee is organized, compounding, and multiplying our freedom."
+          "Wealth, boundless prosperity, and joyful family living flow effortlessly into our lives. Every rupee is organized, compounding, and multiplying our freedom."
         </p>
 
         <div class="manifestation-pillars">
           <div class="m-pillar">
             <span class="m-pillar-icon">💎</span>
-            <span class="m-pillar-text">Total Net Worth Mastery</span>
+            <span class="m-pillar-text">Uncapped Net Worth & Luxury Living</span>
           </div>
           <div class="m-pillar">
             <span class="m-pillar-icon">⚡</span>
-            <span class="m-pillar-text">Pure Cashflow Clarity</span>
+            <span class="m-pillar-text">Overflowing Cashflow & Peace</span>
           </div>
           <div class="m-pillar">
             <span class="m-pillar-icon">🏛️</span>
-            <span class="m-pillar-text">Generational Growth</span>
+            <span class="m-pillar-text">Generational Empire & Freedom</span>
           </div>
         </div>
 
@@ -62,22 +62,28 @@
   </div>
 
   <div id="app">
+    <!-- Admin Mode Floating Banner (Shown when Super Admin is viewing another user's account) -->
+    <div id="admin-mode-banner" style="display:none;background:linear-gradient(90deg, #f59e0b, #d97706);color:#000;padding:8px 16px;justify-content:space-between;align-items:center;font-weight:700;font-size:12px;position:sticky;top:0;z-index:999;">
+      <span>👑 Super Admin Mode: Viewing as <strong id="admin-viewing-username">Pratima</strong></span>
+      <button id="admin-exit-view-btn" style="background:#000;color:#fff;border:none;padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;">Exit to Admin ✕</button>
+    </div>
+
     <!-- Sidebar Navigation (Desktop) -->
     <aside id="sidebar">
       <div class="sidebar-brand" id="sidebar-profile-btn" title="Click to view Wealth Manifestation">
-        <img src="/nick-wealth.jpg" alt="Pam&Nick" class="brand-avatar">
+        <img src="/pranick-manifestation.jpg" alt="PraNick Wealth" class="brand-avatar">
         <div class="brand-text-wrap">
-          <span class="brand-name">Pam&Nick Wealth</span>
-          <span class="brand-tagline">Wealthbook Lite</span>
+          <span class="brand-name">PraNick Wealth</span>
+          <span class="brand-tagline">Wealth Agent</span>
         </div>
       </div>
 
-      <!-- User Switcher Widget in Sidebar -->
-      <div class="sidebar-user-card" id="user-switcher-btn" title="Switch active profile or enter PIN">
-        <div class="user-pill-avatar" id="sidebar-user-avatar">👑</div>
+      <!-- User Switcher / Auth Card in Sidebar -->
+      <div class="sidebar-user-card" id="user-switcher-btn" title="Click to switch profile or login">
+        <div class="user-pill-avatar" id="sidebar-user-avatar">👸</div>
         <div class="user-pill-info">
-          <span class="user-pill-name" id="sidebar-user-name">Pam's Wealth</span>
-          <span class="user-pill-role" id="sidebar-user-role">Switch Profile ▾</span>
+          <span class="user-pill-name" id="sidebar-user-name">Pratima's Wealth</span>
+          <span class="user-pill-role" id="sidebar-user-role">PraNick Agent ▾</span>
         </div>
       </div>
 
@@ -108,11 +114,11 @@
         </a>
         <a href="#/knowledge" class="nav-item" data-view="knowledge" id="nav-knowledge">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          <span>Knowledge Base</span>
+          <span>Knowledge & Vastu</span>
         </a>
         <a href="#/settings" class="nav-item" data-view="settings" id="nav-settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings</span>
+          <span>Settings & Admin</span>
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -128,15 +134,15 @@
       <!-- Mobile Top Bar with User Switcher -->
       <header class="mobile-top-header" id="mobile-top-header">
         <div class="m-brand-wrap" id="mobile-profile-trigger">
-          <img src="/nick-wealth.jpg" alt="Pam&Nick" class="m-avatar">
+          <img src="/pranick-manifestation.jpg" alt="PraNick Wealth" class="m-avatar">
           <div class="m-brand-text">
-            <span class="m-user-title" id="mobile-header-user-title">Pam's Wealth</span>
-            <span class="m-user-sub">Wealthbook Lite</span>
+            <span class="m-user-title" id="mobile-header-user-title">Pratima's Wealth</span>
+            <span class="m-user-sub">PraNick Agent</span>
           </div>
         </div>
         <div class="m-header-actions">
-          <button class="m-user-switch-pill" id="mobile-user-switch-btn" title="Switch User">
-            <span id="mobile-user-badge">👑 Pam</span> ▾
+          <button class="m-user-switch-pill" id="mobile-user-switch-btn" title="Account Login / Switch">
+            <span id="mobile-user-badge">👸 Pratima</span> ▾
           </button>
         </div>
       </header>
@@ -167,6 +173,27 @@
         <span>More</span>
       </a>
     </nav>
+  </div>
+
+  <!-- Global Quick Add FAB -->
+  <button id="global-fab" class="global-fab" title="Quick Add Transaction (Press +)" aria-label="Quick Add Transaction">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"></line>
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+    </svg>
+  </button>
+
+  <!-- Modal Overlay -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div id="modal-content" class="modal-content"></div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
   </div>
 
   <!-- Global Quick Add FAB -->
