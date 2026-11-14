@@ -4,7 +4,7 @@
  */
 import {
   db, seedDefaults,
-  getActiveUserId, setActiveUserId, getCurrentUser, getUsers, authenticateUser, createUser, updateUser, deleteUser,
+  getActiveUserId, setActiveUserId, getAuthUserId, logoutUser, getCurrentUser, getUsers, getUserById, authenticateUser, createUser, updateUser, deleteUser,
   logAdminAction, getAuditLogs, getDashboardPreferences, setDashboardPreferences,
   calculateUserWealth, calculateMetalValuation, fetchLiveMetalRates,
   getNotes, createNote, updateNote, deleteNote, getDashboardNotes,
@@ -127,6 +127,7 @@ function showToast(message, type = 'info', { undoFn, duration = 3500 } = {}) {
 function showModal(html) {
   const overlay = $('#modal-overlay');
   const content = $('#modal-content');
+  if (!overlay || !content) return;
   content.innerHTML = html;
   overlay.classList.remove('hidden');
 
@@ -136,6 +137,7 @@ function showModal(html) {
     if (btn.classList.contains('modal-close') || text === 'cancel' || text === '✕' || text === 'close' || btn.hasAttribute('data-dismiss')) {
       btn.onclick = (e) => {
         e.preventDefault();
+        e.stopPropagation();
         closeModal();
       };
     }
@@ -144,9 +146,18 @@ function showModal(html) {
 }
 
 function closeModal() {
-  $('#modal-overlay').classList.add('hidden');
-  $('#modal-content').innerHTML = '';
+  const overlay = $('#modal-overlay');
+  const content = $('#modal-content');
+  if (overlay) overlay.classList.add('hidden');
+  if (content) content.innerHTML = '';
 }
+
+window.closeModalGlobal = closeModal;
+
+// Escape key closes open modal
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
 
 // ── Multi-User & Secure Auth Functions ─────────────────────────────────
 
@@ -171,9 +182,16 @@ async function updateUserDisplay(user = null) {
   }
 
   if (sidebarName) sidebarName.textContent = `${user.name}'s Wealth`;
-  if (sidebarRole) sidebarRole.textContent = `${user.role === 'admin' ? 'Super Admin 👑' : 'PraNick Agent'} ▾`;
+  if (sidebarRole) sidebarRole.textContent = `${user.role === 'admin' ? 'Super Admin 👑' : 'PraNick Manager'} ▾`;
   if (mobileTitle) mobileTitle.textContent = `${user.name}'s Wealth`;
   if (mobileBadge) mobileBadge.textContent = `${user.avatar || '👸'} ${user.name}`;
+
+  // Admin link visibility in sidebar and mobile top bar
+  const isUserAdmin = user.role === 'admin' || user.email === 'dmlxj007@gmail.com' || Boolean(isAdminViewing);
+  const navAdmin = $('#nav-admin');
+  const mobileAdminBtn = $('#mobile-admin-shortcut-btn');
+  if (navAdmin) navAdmin.style.display = isUserAdmin ? 'flex' : 'none';
+  if (mobileAdminBtn) mobileAdminBtn.style.display = isUserAdmin ? 'inline-block' : 'none';
 }
 
 async function showUserSwitchModal() {
@@ -289,9 +307,12 @@ async function showUserSwitchModal() {
         </form>
       </div>
 
-      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);text-align:center;">
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
+        <button type="button" class="btn btn-sm btn-secondary" id="modal-logout-btn" style="border-color:var(--red);color:var(--red);">
+          🔒 Sign Out (Go to Login)
+        </button>
         <span style="font-size:var(--fs-xs);color:var(--text-muted);">
-          PraNick Wealth Agent · 100% Isolated Vaults per User
+          PraNick Wealth Manager · Cloud Synced
         </span>
       </div>
     </div>
@@ -312,6 +333,14 @@ async function showUserSwitchModal() {
     $('#auth-pane-switch').style.display = 'none';
   });
 
+  // Sign out button
+  $('#modal-logout-btn')?.addEventListener('click', () => {
+    logoutUser();
+    closeModal();
+    showToast('Signed out successfully', 'info');
+    handleRoute();
+  });
+
   // Prompt PIN to switch user
   $$('.prompt-pin-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -319,6 +348,17 @@ async function showUserSwitchModal() {
       const targetId = parseInt(btn.getAttribute('data-id'));
       const targetUser = await getUserById(targetId);
       if (!targetUser) return;
+
+      // Super Admin bypass: Admin can login into any dashboard without PIN prompt
+      if (isAdmin) {
+        sessionStorage.removeItem('admin_viewing_user_id');
+        setActiveUserId(targetId);
+        await updateUserDisplay(targetUser);
+        closeModal();
+        showToast(`Switched to ${targetUser.name}!`, 'success');
+        handleRoute();
+        return;
+      }
 
       const enteredPin = prompt(`Enter Security PIN for ${targetUser.name}:`);
       if (enteredPin === null) return;
@@ -421,25 +461,121 @@ async function showUserSwitchModal() {
   });
 }
 
-// ── Dashboard Customization Modal ─────────────────────────────────────
+// ── Dashboard Customization Modal (8 Stat Boxes + Sections) ──────────────
 
 async function showDashboardCustomizationModal() {
   const prefs = await getDashboardPreferences();
 
   showModal(`
     <div class="modal-header">
-      <h3>⚙️ Customize Dashboard</h3>
+      <h3>⚙️ Customize Dashboard Cards & Sections</h3>
       <button class="modal-close">✕</button>
     </div>
-    <form id="dashboard-prefs-form" style="padding:var(--sp-2) 0;">
+    <form id="dashboard-prefs-form" style="padding:var(--sp-2) 0;max-height:75vh;overflow-y:auto;">
       <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
-        Choose which sections to display on your personal home dashboard. Preferences are saved for your account.
+        Choose which of the 8 wealth summary boxes and page sections to display. Preferences are saved privately for your account.
       </p>
+
+      <div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin:var(--sp-3) 0 var(--sp-2) 0;border-bottom:1px solid rgba(212,175,55,0.2);padding-bottom:4px;">
+        📊 8 Core Wealth Boxes (Show / Hide)
+      </div>
 
       <div class="pref-toggle-row">
         <div>
-          <div class="pref-label-title">Liquid Accounts (Cash & Bank)</div>
-          <div class="pref-label-desc">Display liquid balances and quick cards</div>
+          <div class="pref-label-title">1. Total Real Net Worth</div>
+          <div class="pref-label-desc">Primary net worth calculation (Liquid + Assets + Lending - Debt)</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-net-worth" ${prefs.box_net_worth !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">2. Liquid Money (Cash + Bank)</div>
+          <div class="pref-label-desc">Immediate liquidity across all cash and bank accounts</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-liquid" ${prefs.box_liquid !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">3. Income This Month</div>
+          <div class="pref-label-desc">Total income and inflows recorded in current month</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-income" ${prefs.box_income !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">4. Expenses This Month</div>
+          <div class="pref-label-desc">Total spends and outflows recorded in current month</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-expense" ${prefs.box_expense !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">5. Included Investments</div>
+          <div class="pref-label-desc">Investments, mutual funds, gold, and wealth-generating assets</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-investments" ${prefs.box_investments !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">6. Tracked Personal Assets</div>
+          <div class="pref-label-desc">Personal valuables, vehicles, keepsakes (excluded from net worth)</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-personal-assets" ${prefs.box_personal_assets !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">7. Lent Receivables</div>
+          <div class="pref-label-desc">Money lent out to others that is owed back to you</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-lending" ${prefs.box_lending !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">8. Liabilities & Borrowings</div>
+          <div class="pref-label-desc">Loans, credit dues, debts, and money to return</div>
+        </div>
+        <label class="switch-toggle">
+          <input type="checkbox" id="pref-box-liabilities" ${prefs.box_liabilities !== false ? 'checked' : ''}>
+          <span class="slider-round"></span>
+        </label>
+      </div>
+
+      <div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin:var(--sp-4) 0 var(--sp-2) 0;border-bottom:1px solid rgba(212,175,55,0.2);padding-bottom:4px;">
+        📑 Page Modules & Feeds
+      </div>
+
+      <div class="pref-toggle-row">
+        <div>
+          <div class="pref-label-title">Liquid Accounts Grid</div>
+          <div class="pref-label-desc">Account cards with quick balance overview</div>
         </div>
         <label class="switch-toggle">
           <input type="checkbox" id="pref-accounts" ${prefs.accounts !== false ? 'checked' : ''}>
@@ -449,22 +585,11 @@ async function showDashboardCustomizationModal() {
 
       <div class="pref-toggle-row">
         <div>
-          <div class="pref-label-title">Investments & Wealth Assets</div>
-          <div class="pref-label-desc">Show investment cards, mutual funds, gold</div>
+          <div class="pref-label-title">Investments & Assets Grid</div>
+          <div class="pref-label-desc">Display top investment asset holdings</div>
         </div>
         <label class="switch-toggle">
           <input type="checkbox" id="pref-investments" ${prefs.investments !== false ? 'checked' : ''}>
-          <span class="slider-round"></span>
-        </label>
-      </div>
-
-      <div class="pref-toggle-row">
-        <div>
-          <div class="pref-label-title">Tracked Personal Assets</div>
-          <div class="pref-label-desc">Show personal keepsakes (excluded from wealth calculation)</div>
-        </div>
-        <label class="switch-toggle">
-          <input type="checkbox" id="pref-personalAssets" ${prefs.personalAssets !== false ? 'checked' : ''}>
           <span class="slider-round"></span>
         </label>
       </div>
@@ -483,7 +608,7 @@ async function showDashboardCustomizationModal() {
       <div class="pref-toggle-row">
         <div>
           <div class="pref-label-title">Recent Transactions</div>
-          <div class="pref-label-desc">Show latest money movements and ledger</div>
+          <div class="pref-label-desc">Show latest money movements and ledger feed</div>
         </div>
         <label class="switch-toggle">
           <input type="checkbox" id="pref-transactions" ${prefs.transactions !== false ? 'checked' : ''}>
@@ -501,15 +626,23 @@ async function showDashboardCustomizationModal() {
   $('#dashboard-prefs-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const newPrefs = {
+      box_net_worth: $('#pref-box-net-worth').checked,
+      box_liquid: $('#pref-box-liquid').checked,
+      box_income: $('#pref-box-income').checked,
+      box_expense: $('#pref-box-expense').checked,
+      box_investments: $('#pref-box-investments').checked,
+      box_personal_assets: $('#pref-box-personal-assets').checked,
+      box_lending: $('#pref-box-lending').checked,
+      box_liabilities: $('#pref-box-liabilities').checked,
       accounts: $('#pref-accounts').checked,
       investments: $('#pref-investments').checked,
-      personalAssets: $('#pref-personalAssets').checked,
+      personalAssets: $('#pref-box-personal-assets').checked,
       notes: $('#pref-notes').checked,
       transactions: $('#pref-transactions').checked,
     };
     await setDashboardPreferences(newPrefs);
     closeModal();
-    showToast('Dashboard customized!', 'success');
+    showToast('Dashboard customized successfully!', 'success');
     handleRoute();
   });
 }
@@ -591,10 +724,415 @@ async function showNoteModal(note = null) {
   });
 }
 
+// ── Dedicated Auth Gate (Sign In & Sign Up Screen) ─────────────────────
+
+async function renderAuthGate(container) {
+  const users = await getUsers();
+  const pratimaUser = users.find(u => u.username === 'pratima' || u.name.toLowerCase().includes('pratima'));
+  const adminUser = users.find(u => u.role === 'admin' || u.email === 'dmlxj007@gmail.com') || { name: 'Nick (Admin)', email: 'dmlxj007@gmail.com', pin: '0000' };
+
+  container.innerHTML = `
+    <div style="min-height:85vh;display:flex;align-items:center;justify-content:center;padding:var(--sp-3);">
+      <div style="width:100%;max-width:440px;background:var(--bg-surface);border:1.5px solid var(--accent);border-radius:var(--radius-lg);padding:var(--sp-5);box-shadow:0 12px 40px rgba(0,0,0,0.7);box-sizing:border-box;">
+        
+        <div style="text-align:center;margin-bottom:var(--sp-4);">
+          <img src="/pranick-manifestation.jpg" style="width:76px;height:76px;border-radius:50%;object-fit:cover;object-position:center 25%;border:2.5px solid #fbbf24;box-shadow:0 0 20px rgba(251,191,36,0.35);margin-bottom:var(--sp-2);" alt="PraNick Wealth Manager">
+          <h2 style="font-family:'Cinzel', serif;color:var(--text-primary);margin:0;font-size:1.35rem;letter-spacing:0.5px;">PraNick Wealth Manager</h2>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Private Family Wealth & Abundance Engine</p>
+        </div>
+
+        <!-- Auth Tabs -->
+        <div style="display:flex;gap:var(--sp-2);border-bottom:1px solid var(--border);margin-bottom:var(--sp-4);">
+          <button class="view-tab active" id="gate-tab-signin" style="flex:1;text-align:center;padding:10px 0;">🔐 Sign In</button>
+          <button class="view-tab" id="gate-tab-signup" style="flex:1;text-align:center;padding:10px 0;">✨ Create Account</button>
+        </div>
+
+        <!-- Pane 1: Sign In -->
+        <div id="gate-pane-signin">
+          <!-- Quick Family Sign-In Shortcuts -->
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:var(--sp-4);">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">⚡ Quick Sign-In</div>
+            
+            <button type="button" class="btn btn-secondary quick-signin-btn" data-identifier="pratima" data-pin="${pratimaUser ? pratimaUser.pin : '1234'}" style="justify-content:flex-start;padding:10px 14px;border-color:rgba(212,175,55,0.4);background:rgba(212,175,55,0.06);width:100%;box-sizing:border-box;">
+              <span style="font-size:1.4rem;margin-right:10px;">👸</span>
+              <div style="text-align:left;line-height:1.2;min-width:0;flex:1;">
+                <div style="font-weight:700;color:var(--text-primary);font-size:13px;">Sign in as Pratima</div>
+                <div style="font-size:11px;color:var(--text-muted);">Pratima's Vault · PIN: ${pratimaUser ? pratimaUser.pin : '1234'}</div>
+              </div>
+              <span style="color:var(--accent);font-weight:700;font-size:14px;">➔</span>
+            </button>
+
+            <button type="button" class="btn btn-secondary quick-signin-btn" data-identifier="dmlxj007@gmail.com" data-pin="0000" style="justify-content:flex-start;padding:10px 14px;border-color:rgba(251,191,36,0.6);background:rgba(251,191,36,0.12);width:100%;box-sizing:border-box;">
+              <span style="font-size:1.4rem;margin-right:10px;">👑</span>
+              <div style="text-align:left;line-height:1.2;min-width:0;flex:1;">
+                <div style="font-weight:700;color:#fbbf24;font-size:13px;">Sign in as Super Admin (Nick)</div>
+                <div style="font-size:11px;color:var(--text-muted);">dmlxj007@gmail.com · PIN: 0000</div>
+              </div>
+              <span style="color:#fbbf24;font-weight:700;font-size:14px;">➔</span>
+            </button>
+          </div>
+
+          <div style="display:flex;align-items:center;margin:var(--sp-3) 0;color:var(--text-muted);font-size:11px;">
+            <hr style="flex:1;border:0;border-top:1px solid var(--border);">
+            <span style="padding:0 8px;letter-spacing:0.5px;">OR ENTER CREDENTIALS</span>
+            <hr style="flex:1;border:0;border-top:1px solid var(--border);">
+          </div>
+
+          <form id="gate-signin-form">
+            <div class="form-group" style="margin-bottom:var(--sp-2-5);">
+              <label style="font-size:12px;">Gmail, Phone, or Username</label>
+              <input type="text" id="gate-login-user" class="form-control" placeholder="e.g., pratima@gmail.com or 9876543210" required>
+            </div>
+            <div class="form-group" style="margin-bottom:var(--sp-3);">
+              <label style="font-size:12px;">4-Digit Security PIN / Password</label>
+              <input type="password" id="gate-login-pin" class="form-control" placeholder="••••" maxlength="10" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;font-weight:700;">
+              Sign In to My Vault ➔
+            </button>
+          </form>
+        </div>
+
+        <!-- Pane 2: Create Account / Sign Up -->
+        <div id="gate-pane-signup" style="display:none;">
+          <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+            Create your isolated financial vault. Your records remain private and automatically synchronized with Supabase across your devices.
+          </p>
+          <form id="gate-signup-form">
+            <div class="form-group" style="margin-bottom:var(--sp-2-5);">
+              <label style="font-size:12px;">Full Name</label>
+              <input type="text" id="gate-signup-name" class="form-control" placeholder="e.g., Pratima Jindal" required>
+            </div>
+            <div class="form-group" style="margin-bottom:var(--sp-2-5);">
+              <label style="font-size:12px;">Gmail / Email</label>
+              <input type="email" id="gate-signup-email" class="form-control" placeholder="e.g., pratima@gmail.com" required>
+            </div>
+            <div class="form-group" style="margin-bottom:var(--sp-2-5);">
+              <label style="font-size:12px;">Phone Number (Optional)</label>
+              <input type="tel" id="gate-signup-phone" class="form-control" placeholder="e.g., +91 9876543210">
+            </div>
+            <div class="form-group" style="margin-bottom:var(--sp-3);">
+              <label style="font-size:12px;">Choose 4-Digit Security PIN</label>
+              <input type="password" id="gate-signup-pin" class="form-control" placeholder="e.g., 1234" maxlength="6" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;font-weight:700;">
+              ✨ Create Vault & Enter ➔
+            </button>
+          </form>
+        </div>
+
+        <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);text-align:center;">
+          <span style="font-size:11px;color:var(--text-muted);">
+            🔒 100% Private Vaults · Cloud Synchronized with Supabase
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Tab switching
+  $('#gate-tab-signin')?.addEventListener('click', () => {
+    $('#gate-tab-signin').classList.add('active');
+    $('#gate-tab-signup').classList.remove('active');
+    $('#gate-pane-signin').style.display = 'block';
+    $('#gate-pane-signup').style.display = 'none';
+  });
+
+  $('#gate-tab-signup')?.addEventListener('click', () => {
+    $('#gate-tab-signup').classList.add('active');
+    $('#gate-tab-signin').classList.remove('active');
+    $('#gate-pane-signup').style.display = 'block';
+    $('#gate-pane-signin').style.display = 'none';
+  });
+
+  // Quick Sign In Buttons
+  $$('.quick-signin-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const identifier = btn.getAttribute('data-identifier');
+      const pin = btn.getAttribute('data-pin');
+      try {
+        const user = await authenticateUser(identifier, pin);
+        $('#manifestation-screen')?.classList.add('entered');
+        await updateUserDisplay(user);
+        showToast(`Welcome back, ${user.name}!`, 'success');
+        handleRoute();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  // Form Sign In
+  $('#gate-signin-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const identifier = $('#gate-login-user').value.trim();
+    const pin = $('#gate-login-pin').value.trim();
+    try {
+      const user = await authenticateUser(identifier, pin);
+      $('#manifestation-screen')?.classList.add('entered');
+      await updateUserDisplay(user);
+      showToast(`Welcome back, ${user.name}!`, 'success');
+      handleRoute();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // Form Sign Up
+  $('#gate-signup-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const name = $('#gate-signup-name').value.trim();
+      const email = $('#gate-signup-email').value.trim();
+      const phone = $('#gate-signup-phone').value.trim();
+      const pin = $('#gate-signup-pin').value.trim();
+
+      if (!name || !pin) {
+        alert('Name and 4-digit PIN are required.');
+        return;
+      }
+
+      const isNickAdmin = email.toLowerCase() === 'dmlxj007@gmail.com';
+      const cleanUsername = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(Math.random() * 100);
+
+      const newId = await createUser({
+        name,
+        username: cleanUsername,
+        email: email || `${cleanUsername}@pranick.com`,
+        phone,
+        pin,
+        role: isNickAdmin ? 'admin' : 'user',
+        status: 'active',
+        avatar: isNickAdmin ? '👑' : '👸'
+      });
+
+      // Starter accounts for the new user
+      const now = new Date().toISOString();
+      const today = now.split('T')[0];
+      await db.accounts.bulkAdd([
+        { userId: newId, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 2000, openingBalanceDate: today, notes: 'Personal cash & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+        { userId: newId, name: 'Savings Bank Account', type: 'bank', icon: '🏦', openingBalance: 15000, openingBalanceDate: today, notes: 'Main bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+        { userId: newId, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 1000, openingBalanceDate: today, notes: 'Daily scans & UPI', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+      ]);
+
+      setActiveUserId(newId);
+      const user = await getUserById(newId);
+      $('#manifestation-screen')?.classList.add('entered');
+      await updateUserDisplay(user);
+      showToast(`Account created! Welcome, ${name}!`, 'success');
+      syncAllWithSupabase().catch(() => {});
+      handleRoute();
+    } catch (err) {
+      alert('Error creating account: ' + err.message);
+    }
+  });
+}
+
+// ── Super Admin Command Center (Nick) ─────────────────────────────────
+
+async function renderAdminPanel(container) {
+  const currentUser = await getCurrentUser();
+  const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.email === 'dmlxj007@gmail.com');
+
+  if (!isAdmin) {
+    showToast('Access Denied: Super Admin only', 'error');
+    navigate('#/');
+    return;
+  }
+
+  const allUsers = await getUsers();
+  const sbConfig = await getSupabaseConfig();
+  const lastSyncTime = await getSetting('last_cloud_sync_time');
+
+  // Compute wealth & account counts for all users in parallel
+  const userSummaries = await Promise.all(allUsers.map(async (u) => {
+    try {
+      const wealth = await calculateUserWealth(u.id);
+      const accounts = await db.accounts.where('userId').equals(u.id).toArray();
+      const txnsCount = await db.transactions.where('userId').equals(u.id).count();
+      return { ...u, netWorth: wealth.netWorth, liquidMoney: wealth.liquidMoney, accountCount: accounts.length, txnsCount };
+    } catch (e) {
+      return { ...u, netWorth: 0, liquidMoney: 0, accountCount: 0, txnsCount: 0 };
+    }
+  }));
+
+  container.innerHTML = `
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--sp-3);">
+      <div>
+        <h1 style="color:#fbbf24;display:flex;align-items:center;gap:var(--sp-2);">
+          <span>👑</span> Super Admin Command Center
+        </h1>
+        <p style="color:var(--text-secondary);font-size:var(--fs-sm);">
+          Master control for Nick (${escapeHtml(currentUser.email || 'dmlxj007@gmail.com')}) · Full visibility over all family accounts and credentials
+        </p>
+      </div>
+      <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;">
+        <button class="btn btn-sm btn-primary" id="admin-panel-add-user-btn">+ Add New Family User</button>
+        <button class="btn btn-sm btn-secondary" id="admin-panel-sync-btn" style="border-color:#10b981;color:#10b981;">🔄 Sync Cloud Now</button>
+      </div>
+    </div>
+
+    <!-- Cloud Status Card -->
+    <div style="background:linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(15, 15, 30, 0.85));border:1.5px solid rgba(16, 185, 129, 0.35);border-radius:var(--radius-lg);padding:var(--sp-3-5);margin-bottom:var(--sp-4);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
+      <div style="display:flex;align-items:center;gap:var(--sp-2);">
+        <span style="font-size:1.4rem;">☁️</span>
+        <div>
+          <div style="font-weight:700;color:#10b981;font-size:var(--fs-sm);">Supabase Cross-Device Sync Active</div>
+          <div style="font-size:11px;color:var(--text-muted);">${sbConfig.url} · ${lastSyncTime ? 'Last synced: ' + new Date(lastSyncTime).toLocaleTimeString() : 'Auto-syncing every 45s'}</div>
+        </div>
+      </div>
+      <span style="font-size:11px;padding:3px 10px;border-radius:12px;background:rgba(16, 185, 129, 0.2);color:#10b981;font-weight:700;">🟢 CONNECTED</span>
+    </div>
+
+    <!-- User Management Cards Grid -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Registered Family Vaults (${allUsers.length})</h2>
+      </div>
+      <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
+        As Super Admin, you can view each user's username, email, and <strong>PIN/Password</strong> below, and open their live dashboard anytime with 1 click.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:var(--sp-3-5);">
+        ${userSummaries.map(u => `
+          <div class="stat-card" style="padding:var(--sp-4);border:1.5px solid ${u.id === currentUser.id ? '#fbbf24' : 'var(--border)'};background:var(--bg-surface);display:flex;flex-direction:column;justify-content:space-between;gap:var(--sp-3);">
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-2);margin-bottom:var(--sp-2);">
+                <div style="display:flex;align-items:center;gap:var(--sp-2-5);">
+                  <span style="font-size:2rem;">${u.avatar || (u.role === 'admin' ? '👑' : '👸')}</span>
+                  <div>
+                    <div style="font-weight:800;font-size:var(--fs-base);color:var(--text-primary);">${escapeHtml(u.name)}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">@${escapeHtml(u.username)} · ${u.role === 'admin' ? 'Super Admin 👑' : 'Family Member'}</div>
+                  </div>
+                </div>
+                ${u.id === currentUser.id 
+                  ? '<span style="font-size:10px;background:rgba(251,191,36,0.2);color:#fbbf24;padding:3px 8px;border-radius:10px;font-weight:700;">YOU (ADMIN)</span>'
+                  : '<span style="font-size:10px;background:rgba(124,108,240,0.15);color:var(--accent);padding:3px 8px;border-radius:10px;font-weight:600;">ACTIVE VAULT</span>'
+                }
+              </div>
+
+              <!-- Contact & Credentials Block -->
+              <div style="background:rgba(255,255,255,0.03);border-radius:var(--radius-sm);padding:var(--sp-2-5);margin:var(--sp-2) 0;font-size:12px;display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;">
+                  <span style="color:var(--text-muted);">Email:</span>
+                  <span style="color:var(--text-primary);font-weight:500;">${escapeHtml(u.email || '—')}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                  <span style="color:var(--text-muted);">Phone:</span>
+                  <span style="color:var(--text-primary);font-weight:500;">${escapeHtml(u.phone || '—')}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;padding-top:4px;border-top:1px dashed var(--border);">
+                  <span style="color:#fbbf24;font-weight:700;">🔑 Security PIN:</span>
+                  <span style="background:#fbbf24;color:#000;font-weight:800;padding:2px 8px;border-radius:6px;letter-spacing:1px;font-size:13px;">${escapeHtml(u.pin)}</span>
+                </div>
+              </div>
+
+              <!-- Wealth Stats Snapshot -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2);margin-top:var(--sp-2);">
+                <div style="background:rgba(0,0,0,0.2);padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+                  <div style="font-size:10px;color:var(--text-muted);">Real Net Worth</div>
+                  <div style="font-weight:700;color:var(--accent);font-size:13px;">${formatCurrency(u.netWorth)}</div>
+                </div>
+                <div style="background:rgba(0,0,0,0.2);padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+                  <div style="font-size:10px;color:var(--text-muted);">Liquid / Accounts</div>
+                  <div style="font-weight:700;color:var(--text-primary);font-size:13px;">${formatCurrency(u.liquidMoney)} (${u.accountCount} accs)</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-2);flex-wrap:wrap;">
+              <button class="btn btn-sm btn-primary admin-login-as-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" style="flex:1;">
+                🔍 Open Dashboard ➔
+              </button>
+              <button class="btn btn-sm btn-secondary admin-edit-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" data-pin="${escapeHtml(u.pin)}" title="Edit PIN & Details">
+                ✏️ Edit PIN
+              </button>
+              ${(u.role !== 'admin' && u.id !== currentUser.id) ? `
+                <button class="btn btn-sm btn-danger admin-delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" title="Delete user vault">
+                  🗑️
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  // Attach event listeners in Admin Panel
+  $('#admin-panel-add-user-btn')?.addEventListener('click', () => {
+    showUserSwitchModal();
+    setTimeout(() => {
+      $('#auth-tab-create')?.click();
+    }, 100);
+  });
+
+  $('#admin-panel-sync-btn')?.addEventListener('click', async () => {
+    showToast('🔄 Syncing with Supabase Cloud...', 'info');
+    const res = await syncAllWithSupabase();
+    if (res.success) {
+      showToast('✅ All devices synchronized!', 'success');
+      renderAdminPanel(container);
+    } else {
+      showToast(res.message, 'warning');
+    }
+  });
+
+  // Login as User
+  $$('.admin-login-as-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+      sessionStorage.setItem('admin_viewing_user_id', String(targetId));
+      setActiveUserId(targetId);
+      await updateUserDisplay(targetUser);
+      showToast(`Super Admin Mode: Viewing ${targetUser.name}'s Dashboard`, 'info');
+      navigate('#/');
+    });
+  });
+
+  // Edit PIN Modal
+  $$('.admin-edit-pin-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+
+      const newPin = prompt(`Enter new 4-digit Security PIN for ${targetUser.name}:`, targetUser.pin);
+      if (newPin && newPin.trim()) {
+        await updateUser(targetId, { pin: newPin.trim() });
+        showToast(`PIN updated for ${targetUser.name}!`, 'success');
+        renderAdminPanel(container);
+      }
+    });
+  });
+
+  // Delete User
+  $$('.admin-delete-user-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetName = btn.getAttribute('data-name');
+      if (!confirm(`Are you sure you want to permanently delete user "${targetName}" and all associated financial data? This cannot be undone.`)) {
+        return;
+      }
+      try {
+        await deleteUser(targetId);
+        showToast(`User ${targetName} deleted`, 'success');
+        renderAdminPanel(container);
+      } catch (err) {
+        alert('Failed to delete user: ' + err.message);
+      }
+    });
+  });
+}
+
 // ── Router ────────────────────────────────────────────────────────────
 
 const routes = {
   '/': renderHome,
+  '/admin': renderAdminPanel,
   '/transactions': renderTransactions,
   '/accounts': renderAccounts,
   '/investments': renderInvestments,
@@ -616,9 +1154,34 @@ function getRoute() {
 }
 
 async function handleRoute() {
+  const container = $('#view-container');
+  const authUserId = getAuthUserId();
+
+  if (!authUserId) {
+    // Hide navigation chromes when in auth gate
+    const bnav = $('#bottom-nav');
+    const sbar = $('#sidebar');
+    const mtop = $('#mobile-top-header');
+    const fab = $('#global-fab');
+    if (bnav) bnav.style.display = 'none';
+    if (sbar) sbar.style.display = 'none';
+    if (mtop) mtop.style.display = 'none';
+    if (fab) fab.style.display = 'none';
+    await renderAuthGate(container);
+    return;
+  } else {
+    const bnav = $('#bottom-nav');
+    const sbar = $('#sidebar');
+    const mtop = $('#mobile-top-header');
+    const fab = $('#global-fab');
+    if (bnav) bnav.style.display = '';
+    if (sbar) sbar.style.display = '';
+    if (mtop) mtop.style.display = '';
+    if (fab) fab.style.display = '';
+  }
+
   const route = getRoute();
   const view = routes[route] || routes['/'];
-  const container = $('#view-container');
 
   // Update nav active state
   $$('.nav-item, .bnav-item').forEach(el => {
@@ -997,6 +1560,8 @@ async function showTransactionModal(data = {}) {
   });
 }
 
+window.showTransactionModalGlobal = (d) => showTransactionModal(d);
+
 // ── HOME VIEW ─────────────────────────────────────────────────────────
 
 async function renderHome(container) {
@@ -1077,29 +1642,39 @@ async function renderHome(container) {
 
     ${renderQuickEntry()}
 
-    <!-- Centralized Wealth Engine Core Cards -->
-    <div class="stats-grid">
-      <div class="stat-card balance" style="--card-accent: #d4af37; background: linear-gradient(135deg, rgba(212,175,55,0.15), rgba(15,15,30,0.8));">
-        <div class="stat-label">Total Real Net Worth</div>
-        <div class="stat-value" style="color: #f7df79;">${formatCurrency(displayNetWorth)}</div>
-        <div class="stat-sub">${isMagicMode ? '✨ Manifested 5 Crore Target Reached' : 'Liquid + Included Assets + Lending - Debt'}</div>
+    <!-- Centralized Wealth Engine Core Cards (8 Customizable Boxes) -->
+    ${(prefs.box_net_worth !== false || prefs.box_liquid !== false || prefs.box_income !== false || prefs.box_expense !== false) ? `
+      <div class="stats-grid">
+        ${prefs.box_net_worth !== false ? `
+          <div class="stat-card balance" style="--card-accent: #d4af37; background: linear-gradient(135deg, rgba(212,175,55,0.15), rgba(15,15,30,0.8));">
+            <div class="stat-label">Total Real Net Worth</div>
+            <div class="stat-value" style="color: #f7df79;">${formatCurrency(displayNetWorth)}</div>
+            <div class="stat-sub">${isMagicMode ? '✨ Manifested 5 Crore Target Reached' : 'Liquid + Included Assets + Lending - Debt'}</div>
+          </div>
+        ` : ''}
+        ${prefs.box_liquid !== false ? `
+          <div class="stat-card balance" style="--card-accent: var(--accent)">
+            <div class="stat-label">Liquid Money (Cash + Bank)</div>
+            <div class="stat-value">${formatCurrency(displayLiquid)}</div>
+            <div class="stat-sub">${isMagicMode ? 'Private Wealth & Emergency Vault' : `Across ${accounts.length} liquid accounts`}</div>
+          </div>
+        ` : ''}
+        ${prefs.box_income !== false ? `
+          <div class="stat-card income">
+            <div class="stat-label">Income This Month</div>
+            <div class="stat-value">${formatCurrency(displayIncome)}</div>
+            <div class="stat-sub">${isMagicMode ? 'Passive dividends & business cashflow' : 'Recorded income'}</div>
+          </div>
+        ` : ''}
+        ${prefs.box_expense !== false ? `
+          <div class="stat-card expense">
+            <div class="stat-label">Expenses This Month</div>
+            <div class="stat-value">${formatCurrency(displayExpense)}</div>
+            <div class="stat-sub">${isMagicMode ? 'Luxury lifestyle & travel expenses' : 'Recorded expenses'}</div>
+          </div>
+        ` : ''}
       </div>
-      <div class="stat-card balance" style="--card-accent: var(--accent)">
-        <div class="stat-label">Liquid Money (Cash + Bank)</div>
-        <div class="stat-value">${formatCurrency(displayLiquid)}</div>
-        <div class="stat-sub">${isMagicMode ? 'Private Wealth & Emergency Vault' : `Across ${accounts.length} liquid accounts`}</div>
-      </div>
-      <div class="stat-card income">
-        <div class="stat-label">Income This Month</div>
-        <div class="stat-value">${formatCurrency(displayIncome)}</div>
-        <div class="stat-sub">${isMagicMode ? 'Passive dividends & business cashflow' : 'Recorded income'}</div>
-      </div>
-      <div class="stat-card expense">
-        <div class="stat-label">Expenses This Month</div>
-        <div class="stat-value">${formatCurrency(displayExpense)}</div>
-        <div class="stat-sub">${isMagicMode ? 'Luxury lifestyle & travel expenses' : 'Recorded expenses'}</div>
-      </div>
-    </div>
+    ` : ''}
 
     ${isMagicMode ? `
       <!-- Magic 5 Crore Abundance Life & Asset Breakdown -->
@@ -1150,29 +1725,39 @@ async function renderHome(container) {
         </div>
       </div>
     ` : `
-      <!-- Additional Net Worth Details -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
-        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-          <div class="stat-label" style="font-size:11px;">Included Investments</div>
-          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets || 0)}</div>
-          <div class="stat-sub" style="font-size:10px;">${(wealth.includedAssetsList || []).length} wealth-generating assets</div>
+      <!-- Additional Net Worth Details (Customizable Boxes 5 - 8) -->
+      ${(prefs.box_investments !== false || prefs.box_personal_assets !== false || prefs.box_lending !== false || prefs.box_liabilities !== false) ? `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:var(--sp-3);margin-bottom:var(--sp-5);">
+          ${prefs.box_investments !== false ? `
+            <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+              <div class="stat-label" style="font-size:11px;">Included Investments</div>
+              <div class="stat-value" style="font-size:var(--fs-lg);color:var(--accent);">${formatCurrency(wealth.includedAssets || 0)}</div>
+              <div class="stat-sub" style="font-size:10px;">${(wealth.includedAssetsList || []).length} wealth-generating assets</div>
+            </div>
+          ` : ''}
+          ${prefs.box_personal_assets !== false ? `
+            <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+              <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
+              <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets || 0)}</div>
+              <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
+            </div>
+          ` : ''}
+          ${prefs.box_lending !== false ? `
+            <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+              <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
+              <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables || 0)}</div>
+              <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
+            </div>
+          ` : ''}
+          ${prefs.box_liabilities !== false ? `
+            <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
+              <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
+              <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities || 0)}</div>
+              <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
+            </div>
+          ` : ''}
         </div>
-        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-          <div class="stat-label" style="font-size:11px;">Tracked Personal Assets</div>
-          <div class="stat-value" style="font-size:var(--fs-lg);color:#94a3b8;">${formatCurrency(wealth.personalAssets || 0)}</div>
-          <div class="stat-sub" style="font-size:10px;">Excluded from Net Worth</div>
-        </div>
-        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-          <div class="stat-label" style="font-size:11px;">Lent Receivables</div>
-          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--green);">+${formatCurrency(wealth.lendingReceivables || 0)}</div>
-          <div class="stat-sub" style="font-size:10px;">Money owed to you</div>
-        </div>
-        <div class="stat-card" style="padding:var(--sp-3);border:1px solid var(--border);">
-          <div class="stat-label" style="font-size:11px;">Liabilities & Borrowings</div>
-          <div class="stat-value" style="font-size:var(--fs-lg);color:var(--red);">-${formatCurrency(wealth.liabilities || 0)}</div>
-          <div class="stat-sub" style="font-size:10px;">Debt & money to return</div>
-        </div>
-      </div>
+      ` : ''}
     `}
 
     <!-- Notes & Reminders Widget (if enabled) -->
@@ -4247,6 +4832,20 @@ async function renderSettings(container) {
     setTimeout(() => {
       $('#auth-tab-create')?.click();
     }, 100);
+  });
+
+  // Admin Inspect User in Settings
+  $$('.admin-settings-inspect-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = parseInt(btn.getAttribute('data-id'));
+      const targetUser = await getUserById(targetId);
+      if (!targetUser) return;
+      sessionStorage.setItem('admin_viewing_user_id', String(targetId));
+      setActiveUserId(targetId);
+      await updateUserDisplay(targetUser);
+      showToast(`Super Admin Mode: Viewing ${targetUser.name}'s Dashboard`, 'info');
+      navigate('#/');
+    });
   });
 
   // Admin Delete User in Settings

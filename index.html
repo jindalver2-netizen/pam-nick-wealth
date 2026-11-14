@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>PraNick Wealth Agent — Your Personal Financial Command & Abundance Engine</title>
-  <meta name="description" content="PraNick Wealth Agent — Luxury family wealth command center, manifestation & cashflow tracking.">
+  <title>PraNick Wealth Manager — Family Wealth Command & Abundance Engine</title>
+  <meta name="description" content="PraNick Wealth Manager — Luxury family wealth command center, manifestation & cashflow tracking.">
   <meta name="theme-color" content="#0a0a1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -24,7 +24,7 @@
     <div class="manifestation-card">
       <div class="manifestation-portrait-wrap">
         <img src="/pranick-manifestation.jpg" alt="PraNick Wealth Agent" class="manifestation-portrait">
-        <div class="manifestation-portrait-badge">💎 PRANICK WEALTH AGENT</div>
+        <div class="manifestation-portrait-badge">💎 PRANICK WEALTH MANAGER</div>
       </div>
       
       <div class="manifestation-details">
@@ -74,7 +74,7 @@
         <img src="/pranick-manifestation.jpg" alt="PraNick Wealth" class="brand-avatar">
         <div class="brand-text-wrap">
           <span class="brand-name">PraNick Wealth</span>
-          <span class="brand-tagline">Wealth Agent</span>
+          <span class="brand-tagline">Wealth Manager</span>
         </div>
       </div>
 
@@ -118,7 +118,11 @@
         </a>
         <a href="#/settings" class="nav-item" data-view="settings" id="nav-settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings & Admin</span>
+          <span>Settings</span>
+        </a>
+        <a href="#/admin" class="nav-item" data-view="admin" id="nav-admin" style="display:none;background:rgba(251,191,36,0.1);border-left:3px solid #fbbf24;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7 7-3-4 8 4 8-8-3-8 3 4-8-4-8 7 3z"/></svg>
+          <span style="color:#fbbf24;font-weight:700;">Admin Center 👑</span>
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -137,10 +141,13 @@
           <img src="/pranick-manifestation.jpg" alt="PraNick Wealth" class="m-avatar">
           <div class="m-brand-text">
             <span class="m-user-title" id="mobile-header-user-title">Pratima's Wealth</span>
-            <span class="m-user-sub">PraNick Agent</span>
+            <span class="m-user-sub">PraNick Manager</span>
           </div>
         </div>
         <div class="m-header-actions">
+          <a href="#/admin" id="mobile-admin-shortcut-btn" style="display:none;font-size:11px;background:#fbbf24;color:#000;font-weight:700;padding:5px 9px;border-radius:14px;text-decoration:none;margin-right:6px;">
+            👑 Admin
+          </a>
           <button class="m-user-switch-pill" id="mobile-user-switch-btn" title="Account Login / Switch">
             <span id="mobile-user-badge">👸 Pratima</span> ▾
           </button>
@@ -173,48 +180,6 @@
         <span>More</span>
       </a>
     </nav>
-  </div>
-
-  <!-- Global Quick Add FAB -->
-  <button id="global-fab" class="global-fab" title="Quick Add Transaction (Press +)" aria-label="Quick Add Transaction" onclick="window.showTransactionModalGlobal && window.showTransactionModalGlobal()">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19"></line>
-      <line x1="5" y1="12" x2="19" y2="12"></line>
-    </svg>
-  </button>
-
-  <!-- Modal Overlay -->
-  <div id="modal-overlay" class="modal-overlay hidden">
-    <div id="modal-content" class="modal-content"></div>
-  </div>
-
-  <!-- Toast Container -->
-  <div id="toast-container"></div>
-
-  <script type="module" src="/src/app.js"></script>
-</body>
-</html>
-  </div>
-
-  <!-- Global Quick Add FAB -->
-  <button id="global-fab" class="global-fab" title="Quick Add Transaction (Press +)" aria-label="Quick Add Transaction" onclick="window.showTransactionModalGlobal && window.showTransactionModalGlobal()">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19"></line>
-      <line x1="5" y1="12" x2="19" y2="12"></line>
-    </svg>
-  </button>
-
-  <!-- Modal Overlay -->
-  <div id="modal-overlay" class="modal-overlay hidden">
-    <div id="modal-content" class="modal-content"></div>
-  </div>
-
-  <!-- Toast Container -->
-  <div id="toast-container"></div>
-
-  <script type="module" src="/src/app.js"></script>
-</body>
-</html>
   </div>
 
   <!-- Global Quick Add FAB -->

