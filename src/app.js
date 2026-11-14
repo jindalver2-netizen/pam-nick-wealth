@@ -131,18 +131,29 @@ function showModal(html) {
   content.innerHTML = html;
   overlay.classList.remove('hidden');
 
-  // Attach close handler to ALL modal-close buttons, Cancel buttons, and dismiss triggers
-  content.querySelectorAll('.modal-close, button, [data-dismiss="modal"]').forEach(btn => {
-    const text = btn.textContent.trim().toLowerCase();
-    if (btn.classList.contains('modal-close') || text === 'cancel' || text === '✕' || text === 'close' || btn.hasAttribute('data-dismiss')) {
-      btn.onclick = (e) => {
+  // Robust Delegated Close Handler
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      closeModal();
+      return;
+    }
+    const dismissEl = e.target.closest('.modal-close, .modal-cancel, [data-dismiss="modal"]');
+    if (dismissEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeModal();
+      return;
+    }
+    const btn = e.target.closest('button');
+    if (btn) {
+      const text = btn.textContent.trim().toLowerCase();
+      if (text === 'cancel' || text === 'close' || text === '✕') {
         e.preventDefault();
         e.stopPropagation();
         closeModal();
-      };
+      }
     }
-  });
-  overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+  };
 }
 
 function closeModal() {
@@ -199,6 +210,8 @@ async function showUserSwitchModal() {
   const currentUserId = getActiveUserId();
   const currentUser = await getCurrentUser();
   const isAdmin = currentUser && currentUser.role === 'admin';
+  const familyCount = users.filter(u => u.role !== 'admin').length;
+  const isLimitReached = familyCount >= 2;
 
   showModal(`
     <div class="modal-header">
@@ -208,7 +221,7 @@ async function showUserSwitchModal() {
     <div style="padding:var(--sp-2) 0;">
       <div style="display:flex;gap:var(--sp-2);border-bottom:1px solid var(--border);margin-bottom:var(--sp-3);">
         <button class="view-tab active" id="auth-tab-switch">Switch Profile</button>
-        <button class="view-tab" id="auth-tab-create">+ New User Sign Up</button>
+        <button class="view-tab" id="auth-tab-create">${isLimitReached ? '🔒 Sign Up (Limit Reached)' : '+ New User Sign Up'}</button>
       </div>
 
       <!-- Tab 1: Profile Selection with PIN -->
@@ -247,8 +260,8 @@ async function showUserSwitchModal() {
                   ? '<span style="font-size:11px;background:rgba(212,175,55,0.2);color:var(--accent);padding:4px 8px;border-radius:12px;font-weight:600;">ACTIVE (YOU)</span>'
                   : `<button class="btn btn-sm btn-primary prompt-pin-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">Login ➔</button>`
                 }
-                ${(u.role !== 'admin' && u.id !== 1) ? `
-                  <button class="btn btn-sm btn-danger delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" title="Delete user account" style="padding:4px 8px;font-size:11px;">🗑️</button>
+                ${(u.role !== 'admin' && u.id !== 2) ? `
+                  <button class="btn btn-sm btn-danger delete-user-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}" title="Delete user account" style="padding:4px 8px;font-size:11px;">🗑️ Delete</button>
                 ` : ''}
               </div>
             </div>
@@ -274,6 +287,17 @@ async function showUserSwitchModal() {
 
       <!-- Tab 2: Create New User Account -->
       <div id="auth-pane-create" style="display:none;">
+        ${isLimitReached ? `
+          <div style="padding:var(--sp-4);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-md);text-align:center;">
+            <div style="font-size:1.8rem;margin-bottom:6px;">⚠️</div>
+            <div style="font-weight:700;color:var(--text-primary);font-size:14px;margin-bottom:4px;">Account Limit Reached</div>
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 var(--sp-3) 0;">
+              PraNick Wealth Manager allows exactly 1 Super Admin + 2 Family Members. Both family member slots are currently filled.
+              To register a new user, delete an existing member first.
+            </p>
+            <button type="button" class="btn btn-secondary modal-close">Close</button>
+          </div>
+        ` : `
         <form id="signup-user-form">
           <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
             Create a new account with Gmail or Phone number. A fresh isolated personal finance vault will be created.
@@ -305,6 +329,7 @@ async function showUserSwitchModal() {
             <button type="submit" class="btn btn-primary">Create Account & Login</button>
           </div>
         </form>
+        `}
       </div>
 
       <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--sp-2);">
@@ -730,6 +755,8 @@ async function renderAuthGate(container) {
   const users = await getUsers();
   const pratimaUser = users.find(u => u.username === 'pratima' || u.name.toLowerCase().includes('pratima'));
   const adminUser = users.find(u => u.role === 'admin' || u.email === 'dmlxj007@gmail.com') || { name: 'Nick (Admin)', email: 'dmlxj007@gmail.com', pin: '0000' };
+  const familyCount = users.filter(u => u.role !== 'admin').length;
+  const isLimitReached = familyCount >= 2;
 
   container.innerHTML = `
     <div style="min-height:85vh;display:flex;align-items:center;justify-content:center;padding:var(--sp-3);">
@@ -744,7 +771,7 @@ async function renderAuthGate(container) {
         <!-- Auth Tabs -->
         <div style="display:flex;gap:var(--sp-2);border-bottom:1px solid var(--border);margin-bottom:var(--sp-4);">
           <button class="view-tab active" id="gate-tab-signin" style="flex:1;text-align:center;padding:10px 0;">🔐 Sign In</button>
-          <button class="view-tab" id="gate-tab-signup" style="flex:1;text-align:center;padding:10px 0;">✨ Create Account</button>
+          <button class="view-tab" id="gate-tab-signup" style="flex:1;text-align:center;padding:10px 0;">${isLimitReached ? '🔒 Sign Up (Full)' : '✨ Create Account'}</button>
         </div>
 
         <!-- Pane 1: Sign In -->
@@ -795,6 +822,17 @@ async function renderAuthGate(container) {
 
         <!-- Pane 2: Create Account / Sign Up -->
         <div id="gate-pane-signup" style="display:none;">
+          ${isLimitReached ? `
+            <div style="padding:var(--sp-4);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-md);text-align:center;">
+              <div style="font-size:1.8rem;margin-bottom:6px;">⚠️</div>
+              <div style="font-weight:700;color:var(--text-primary);font-size:14px;margin-bottom:4px;">Account Limit Reached</div>
+              <p style="font-size:12px;color:var(--text-muted);margin:0 0 var(--sp-3) 0;">
+                PraNick Wealth Manager allows exactly 1 Super Admin and up to 2 Family Members. Both family member accounts are registered.
+                Please sign in with your credentials.
+              </p>
+              <button type="button" class="btn btn-secondary" onclick="document.querySelector('#gate-tab-signin').click()">Go to Sign In</button>
+            </div>
+          ` : `
           <p style="font-size:var(--fs-sm);color:var(--text-secondary);margin-bottom:var(--sp-3);">
             Create your isolated financial vault. Your records remain private and automatically synchronized with Supabase across your devices.
           </p>
@@ -819,6 +857,7 @@ async function renderAuthGate(container) {
               ✨ Create Vault & Enter ➔
             </button>
           </form>
+          `}
         </div>
 
         <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border);text-align:center;">
@@ -1192,10 +1231,6 @@ async function handleRoute() {
     el.classList.toggle('active', isActive);
   });
 
-  container.style.animation = 'none';
-  container.offsetHeight; // trigger reflow
-  container.style.animation = '';
-
   await view(container);
 }
 
@@ -1504,7 +1539,7 @@ async function showTransactionModal(data = {}) {
       </div>
 
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
         <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Save'}</button>
       </div>
     </form>
@@ -1814,59 +1849,6 @@ async function renderHome(container) {
               <button class="btn btn-primary" id="add-first-account">+ Add Account</button>
             </div>
           ` : ''}
-        </div>
-      </div>
-    ` : ''}
-
-    <!-- Investments Section (if enabled) -->
-    ${prefs.investments !== false && (wealth.includedAssetsList || []).length > 0 ? `
-      <div class="section">
-        <div class="section-header">
-          <h2>Investments & Wealth Assets</h2>
-          <a href="#/investments" class="btn-link">View All →</a>
-        </div>
-        <div class="accounts-grid">
-          ${(wealth.includedAssetsList || []).slice(0, 4).map(a => `
-            <div class="asset-card" onclick="window.location.hash='#/investments'">
-              <div class="asset-header">
-                <div>
-                  <div class="asset-name">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
-                  <div class="asset-type">${ASSET_TYPE_LABELS[a.type] || a.type}</div>
-                </div>
-              </div>
-              <div class="asset-value">${formatCurrency(a.currentValue)}</div>
-              ${a.investedAmount > 0 ? `
-                <div class="asset-invested">Invested: ${formatCurrency(a.investedAmount)}</div>
-                <div class="asset-gain ${a.currentValue >= a.investedAmount ? 'positive' : 'negative'}">
-                  ${a.currentValue >= a.investedAmount ? '▲' : '▼'} ${formatCurrency(Math.abs(a.currentValue - a.investedAmount))}
-                </div>
-              ` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    ` : ''}
-
-    <!-- Tracked Personal Assets Section (if enabled and present) -->
-    ${prefs.personalAssets !== false && (wealth.personalAssetsList || []).length > 0 ? `
-      <div class="section">
-        <div class="section-header">
-          <h2>Tracked Personal Assets</h2>
-          <span class="tracked-badge" title="Excluded from Net Worth">Personal / Keepsake</span>
-        </div>
-        <div class="accounts-grid">
-          ${(wealth.personalAssetsList || []).map(a => `
-            <div class="asset-card" style="border: 1px dashed rgba(148, 163, 184, 0.4);" onclick="window.location.hash='#/investments'">
-              <div class="asset-header">
-                <div>
-                  <div class="asset-name">${ASSET_TYPE_ICONS[a.type] || '📦'} ${escapeHtml(a.name)}</div>
-                  <div class="asset-type">${ASSET_TYPE_LABELS[a.type] || a.type} · Tracked</div>
-                </div>
-              </div>
-              <div class="asset-value" style="color:#94a3b8;">${formatCurrency(a.currentValue)}</div>
-              <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Shown for tracking only; excluded from wealth.</div>
-            </div>
-          `).join('')}
         </div>
       </div>
     ` : ''}
@@ -2723,7 +2705,7 @@ async function showAccountModal(data = {}) {
         <textarea id="acc-notes" class="form-control" rows="2">${escapeHtml(data.notes || '')}</textarea>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
         <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Create'}</button>
       </div>
     </form>
@@ -2786,7 +2768,7 @@ async function showSnapshotModal() {
         <textarea id="snap-notes" class="form-control" rows="2"></textarea>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
         <button type="submit" class="btn btn-primary">Save Snapshot</button>
       </div>
     </form>
@@ -3151,7 +3133,7 @@ async function showValuationModal(assetId) {
         </div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
         <button type="submit" class="btn btn-primary">Update</button>
       </div>
     </form>
@@ -5073,7 +5055,7 @@ async function showCategoryModal(type, data = {}) {
         <input type="text" id="cat-keywords" class="form-control" value="${escapeHtml(data.keywords || '')}" placeholder="e.g., netflix,spotify,subscription">
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="document.querySelector('#modal-overlay').classList.add('hidden')">Cancel</button>
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
         <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Create'}</button>
       </div>
     </form>
@@ -5194,13 +5176,10 @@ async function init() {
     }
   }).catch(() => {});
 
-  // Automatic Cross-Device Sync on Window/Mobile Tab Focus and every 45 seconds
-  window.addEventListener('focus', () => {
-    syncAllWithSupabase().then(() => handleRoute()).catch(() => {});
-  });
+  // Background periodic sync (quietly syncs without disrupting UI)
   setInterval(() => {
     syncAllWithSupabase().catch(() => {});
-  }, 45000);
+  }, 60000);
 
   // Route handler
   window.addEventListener('hashchange', handleRoute);

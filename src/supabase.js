@@ -79,12 +79,72 @@ export async function testSupabaseConnection() {
   }
 }
 
+export const ALLOWED_TABLE_COLUMNS = {
+  users: [
+    'id', 'username', 'name', 'email', 'phone', 'role', 'status', 'pin', 'avatar',
+    'created_at', 'updated_at'
+  ],
+  accounts: [
+    'id', 'user_id', 'name', 'type', 'icon', 'opening_balance', 'opening_balance_date',
+    'notes', 'is_active', 'sort_order', 'created_at', 'updated_at'
+  ],
+  transactions: [
+    'id', 'user_id', 'type', 'amount', 'date', 'time', 'category_id', 'account_id',
+    'to_account_id', 'description', 'notes', 'tags', 'is_deleted', 'created_at', 'updated_at'
+  ],
+  assets: [
+    'id', 'user_id', 'name', 'category', 'type', 'invested_amount', 'current_value',
+    'quantity', 'unit', 'institution', 'folio_number', 'purchase_date', 'last_valuation_date',
+    'notes', 'is_physical', 'include_in_wealth', 'show_on_dashboard', 'valuation_status',
+    'is_active', 'created_at', 'updated_at'
+  ],
+  valuations: [
+    'id', 'user_id', 'asset_id', 'value', 'date', 'notes', 'valuation_type', 'created_at'
+  ],
+  lend_borrow: [
+    'id', 'user_id', 'type', 'person_name', 'person_phone', 'amount', 'outstanding_amount',
+    'date', 'due_date', 'account_id', 'notes', 'status', 'created_at', 'updated_at'
+  ],
+  liabilities: [
+    'id', 'user_id', 'lender_name', 'type', 'original_amount', 'current_outstanding',
+    'interest_rate', 'emi_amount', 'start_date', 'end_date', 'next_due_date',
+    'status', 'created_at', 'updated_at'
+  ],
+  subscriptions: [
+    'id', 'user_id', 'name', 'company', 'amount', 'billing_frequency', 'next_due_date',
+    'account_id', 'status', 'auto_renewal', 'created_at', 'updated_at'
+  ],
+  insurance_policies: [
+    'id', 'user_id', 'provider', 'policy_name', 'policy_type', 'policy_number',
+    'premium_amount', 'payment_frequency', 'next_renewal_date', 'sum_insured',
+    'status', 'created_at', 'updated_at'
+  ]
+};
+
+export function sanitizeForCloud(tableName, record) {
+  if (!record || typeof record !== 'object') return record;
+  const snake = toSnakeCase(record);
+  const allowed = ALLOWED_TABLE_COLUMNS[tableName];
+  if (!allowed) return snake;
+  const sanitized = {};
+  for (const col of allowed) {
+    if (snake[col] !== undefined) {
+      sanitized[col] = snake[col];
+    }
+  }
+  return sanitized;
+}
+
 export async function pushRecordToCloud(tableName, record) {
   try {
     const client = await getSupabase();
-    if (!client) return;
-    const snake = toSnakeCase(record);
-    await client.from(tableName).upsert([snake], { onConflict: 'id' });
+    if (!client || !record) return;
+    const sanitized = sanitizeForCloud(tableName, record);
+    if (sanitized.id === undefined || sanitized.id === null) return;
+    const { error } = await client.from(tableName).upsert([sanitized], { onConflict: 'id' });
+    if (error) {
+      console.warn(`Auto-push warning for ${tableName}:`, error.message);
+    }
   } catch (err) {
     console.warn(`Auto-push error for ${tableName}:`, err);
   }
@@ -93,7 +153,7 @@ export async function pushRecordToCloud(tableName, record) {
 export async function deleteRecordFromCloud(tableName, id) {
   try {
     const client = await getSupabase();
-    if (!client) return;
+    if (!client || id === undefined || id === null) return;
     await client.from(tableName).delete().eq('id', id);
   } catch (err) {
     console.warn(`Auto-delete error for ${tableName}:`, err);
@@ -138,10 +198,13 @@ export async function syncAllWithSupabase() {
       // 2. Push local changes to Supabase
       const localRecords = await table.dexie.toArray();
       if (localRecords.length > 0) {
-        const snakeRecords = localRecords.map(toSnakeCase);
+        const sanitizedRecords = localRecords
+          .map(r => sanitizeForCloud(table.name, r))
+          .filter(r => r && r.id !== undefined && r.id !== null);
+
         const batchSize = 50;
-        for (let i = 0; i < snakeRecords.length; i += batchSize) {
-          const batch = snakeRecords.slice(i, i + batchSize);
+        for (let i = 0; i < sanitizedRecords.length; i += batchSize) {
+          const batch = sanitizedRecords.slice(i, i + batchSize);
           const { error: pushErr } = await client
             .from(table.name)
             .upsert(batch, { onConflict: 'id' });

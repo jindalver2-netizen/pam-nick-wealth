@@ -110,8 +110,34 @@ export async function getUserById(id) {
 }
 
 export async function createUser(data) {
+  const allUsers = await db.users.toArray();
+  const regularUsers = allUsers.filter(u => u.role !== 'admin');
+  
+  if (data.role === 'admin') {
+    const hasAdmin = allUsers.some(u => u.role === 'admin');
+    if (hasAdmin) {
+      throw new Error('Only 1 Super Admin is allowed in PraNick Wealth Manager.');
+    }
+  } else {
+    if (regularUsers.length >= 2) {
+      throw new Error('Account limit reached: Maximum 2 family member accounts are allowed (1 Admin + 2 Members).');
+    }
+  }
+
+  if (allUsers.length >= 3) {
+    throw new Error('System limit reached: Maximum 3 total accounts allowed (1 Admin + 2 Family Members).');
+  }
+
   const now = new Date().toISOString();
+  // Find highest current id + 1
+  const existingIds = allUsers.map(u => u.id || 0);
+  let newId = 1;
+  while (existingIds.includes(newId)) {
+    newId++;
+  }
+
   const userPayload = {
+    id: newId,
     username: (data.username || '').toLowerCase().trim(),
     name: data.name || data.username || 'User',
     email: (data.email || '').toLowerCase().trim(),
@@ -123,8 +149,23 @@ export async function createUser(data) {
     createdAt: now,
     updatedAt: now
   };
-  const id = await db.users.add(userPayload);
-  userPayload.id = id;
+  await db.users.add(userPayload);
+
+  // Automatically create 3 clean default starter accounts for this new user with 0 balance
+  const today = now.split('T')[0];
+  const starterAccs = [
+    { userId: newId, name: 'Cashbox & Purse', type: 'cash', icon: '💵', openingBalance: 0, openingBalanceDate: today, notes: 'Daily cash', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+    { userId: newId, name: 'Primary Bank Account', type: 'bank', icon: '🏦', openingBalance: 0, openingBalanceDate: today, notes: 'Savings bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+    { userId: newId, name: 'PhonePe / UPI Wallet', type: 'upi', icon: '📱', openingBalance: 0, openingBalanceDate: today, notes: 'Daily digital payments', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now }
+  ];
+  for (const acc of starterAccs) {
+    const accId = await db.accounts.add(acc);
+    acc.id = accId;
+    try {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('accounts', acc);
+    } catch (_) {}
+  }
 
   try {
     const { pushRecordToCloud } = await import('./supabase.js');
@@ -134,7 +175,7 @@ export async function createUser(data) {
   }
 
   await logAdminAction('CREATE_USER', `Created user ${data.name} (@${userPayload.username}) with role ${userPayload.role}`);
-  return id;
+  return newId;
 }
 
 export async function updateUser(id, data) {
@@ -159,7 +200,7 @@ export async function deleteUser(id) {
     throw new Error('Primary Super Admin cannot be deleted.');
   }
 
-  // Delete all records belonging to this user across all tables
+  // Delete all records belonging to this user across all tables in Dexie
   await db.transaction('rw', [
     db.users, db.accounts, db.transactions, db.assets, db.valuations,
     db.lendBorrow, db.liabilities, db.subscriptions, db.insurancePolicies
@@ -176,20 +217,31 @@ export async function deleteUser(id) {
   });
 
   try {
-    const { deleteRecordFromCloud } = await import('./supabase.js');
-    await deleteRecordFromCloud('users', id);
+    const { getSupabase } = await import('./supabase.js');
+    const client = await getSupabase();
+    if (client) {
+      await client.from('transactions').delete().eq('user_id', id);
+      await client.from('accounts').delete().eq('user_id', id);
+      await client.from('assets').delete().eq('user_id', id);
+      await client.from('valuations').delete().eq('user_id', id);
+      await client.from('lend_borrow').delete().eq('user_id', id);
+      await client.from('liabilities').delete().eq('user_id', id);
+      await client.from('subscriptions').delete().eq('user_id', id);
+      await client.from('insurance_policies').delete().eq('user_id', id);
+      await client.from('users').delete().eq('id', id);
+    }
   } catch (e) {
-    console.warn('Could not delete user from cloud:', e);
+    console.warn('Could not delete user records from cloud:', e);
   }
 
   await logAdminAction('DELETE_USER', `Deleted user ${user.name} (ID ${id}) and all associated records`);
 
-  // If deleted user was active, switch back to admin or first user
+  // If deleted user was active or auth user, switch back to Admin (ID 2)
   if (getActiveUserId() === id) {
-    const remainingUser = await db.users.first();
-    if (remainingUser) {
-      setActiveUserId(remainingUser.id);
-    }
+    setActiveUserId(2);
+  }
+  if (getAuthUserId() === id) {
+    setAuthUserId(2);
   }
   return true;
 }
@@ -350,9 +402,12 @@ export async function seedDefaults() {
     const now = new Date().toISOString();
     const today = now.split('T')[0];
     await db.accounts.bulkAdd([
-      { userId: 1, name: 'Cashbox', type: 'cash', icon: '💵', openingBalance: 4500, openingBalanceDate: today, notes: 'Home cash drawer & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
-      { userId: 1, name: 'HDFC Savings Bank', type: 'bank', icon: '🏦', openingBalance: 52000, openingBalanceDate: today, notes: 'Primary bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
-      { userId: 1, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 3200, openingBalanceDate: today, notes: 'Daily scans & groceries', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+      { id: 1, userId: 1, name: 'Cashbox & Purse', type: 'cash', icon: '💵', openingBalance: 0, openingBalanceDate: today, notes: 'Home cash drawer & purse', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+      { id: 2, userId: 1, name: 'HDFC Savings Bank', type: 'bank', icon: '🏦', openingBalance: 0, openingBalanceDate: today, notes: 'Primary bank account', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+      { id: 3, userId: 1, name: 'PhonePe / UPI', type: 'upi', icon: '📱', openingBalance: 0, openingBalanceDate: today, notes: 'Daily scans & groceries', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
+      { id: 4, userId: 2, name: 'Primary Bank Account', type: 'bank', icon: '🏦', openingBalance: 0, openingBalanceDate: today, notes: 'Admin primary account', isActive: 1, sortOrder: 1, createdAt: now, updatedAt: now },
+      { id: 5, userId: 2, name: 'Cashbox Vault', type: 'cash', icon: '💵', openingBalance: 0, openingBalanceDate: today, notes: 'Admin cash vault', isActive: 1, sortOrder: 2, createdAt: now, updatedAt: now },
+      { id: 6, userId: 2, name: 'UPI / Digital Wallet', type: 'upi', icon: '📱', openingBalance: 0, openingBalanceDate: today, notes: 'Admin UPI', isActive: 1, sortOrder: 3, createdAt: now, updatedAt: now },
     ]);
   }
 }
@@ -362,7 +417,7 @@ export async function seedDefaults() {
 export async function createAccount(data) {
   const uid = data.userId || getActiveUserId();
   const now = new Date().toISOString();
-  return db.accounts.add({
+  const accRecord = {
     userId: uid,
     name: data.name,
     type: data.type || 'bank',
@@ -374,15 +429,38 @@ export async function createAccount(data) {
     sortOrder: data.sortOrder || 0,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+  const id = await db.accounts.add(accRecord);
+  accRecord.id = id;
+  try {
+    const { pushRecordToCloud } = await import('./supabase.js');
+    await pushRecordToCloud('accounts', accRecord);
+  } catch (e) {}
+  return id;
 }
 
 export async function updateAccount(id, data) {
-  return db.accounts.update(id, { ...data, updatedAt: new Date().toISOString() });
+  const res = await db.accounts.update(id, { ...data, updatedAt: new Date().toISOString() });
+  try {
+    const updated = await db.accounts.get(id);
+    if (updated) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('accounts', updated);
+    }
+  } catch (e) {}
+  return res;
 }
 
 export async function archiveAccount(id) {
-  return db.accounts.update(id, { isActive: 0, updatedAt: new Date().toISOString() });
+  const res = await db.accounts.update(id, { isActive: 0, updatedAt: new Date().toISOString() });
+  try {
+    const updated = await db.accounts.get(id);
+    if (updated) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('accounts', updated);
+    }
+  } catch (e) {}
+  return res;
 }
 
 export async function getActiveAccounts(userId = getActiveUserId()) {
@@ -433,7 +511,7 @@ export async function deleteCategory(id) {
 export async function createTransaction(data) {
   const uid = data.userId || getActiveUserId();
   const now = new Date().toISOString();
-  return db.transactions.add({
+  const txnRecord = {
     userId: uid,
     type: data.type, // 'income' | 'expense' | 'transfer'
     amount: parseFloat(data.amount) || 0,
@@ -449,19 +527,49 @@ export async function createTransaction(data) {
     isDeleted: 0,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+  const id = await db.transactions.add(txnRecord);
+  txnRecord.id = id;
+  try {
+    const { pushRecordToCloud } = await import('./supabase.js');
+    await pushRecordToCloud('transactions', txnRecord);
+  } catch (e) {
+    console.warn('Could not auto-push transaction to Supabase:', e);
+  }
+  return id;
 }
 
 export async function updateTransaction(id, data) {
-  return db.transactions.update(id, { ...data, updatedAt: new Date().toISOString() });
+  const res = await db.transactions.update(id, { ...data, updatedAt: new Date().toISOString() });
+  try {
+    const updated = await db.transactions.get(id);
+    if (updated) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('transactions', updated);
+    }
+  } catch (e) {}
+  return res;
 }
 
 export async function deleteTransaction(id) {
-  return db.transactions.update(id, { isDeleted: 1, updatedAt: new Date().toISOString() });
+  const res = await db.transactions.update(id, { isDeleted: 1, updatedAt: new Date().toISOString() });
+  try {
+    const updated = await db.transactions.get(id);
+    if (updated) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('transactions', updated);
+    }
+  } catch (e) {}
+  return res;
 }
 
 export async function hardDeleteTransaction(id) {
-  return db.transactions.delete(id);
+  const res = await db.transactions.delete(id);
+  try {
+    const { deleteRecordFromCloud } = await import('./supabase.js');
+    await deleteRecordFromCloud('transactions', id);
+  } catch (e) {}
+  return res;
 }
 
 export async function getTransaction(id) {
@@ -747,10 +855,16 @@ export async function createAsset(data) {
   };
 
   const id = await db.assets.add(assetRecord);
+  assetRecord.id = id;
+
+  try {
+    const { pushRecordToCloud } = await import('./supabase.js');
+    await pushRecordToCloud('assets', assetRecord);
+  } catch (e) {}
 
   // Initial valuation record
   if (assetRecord.currentValue > 0) {
-    await db.valuations.add({
+    const valId = await db.valuations.add({
       userId: uid,
       assetId: id,
       date: assetRecord.lastValuationDate,
@@ -759,6 +873,10 @@ export async function createAsset(data) {
       source: assetRecord.valuationSource,
       notes: 'Initial valuation record',
     });
+    try {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('valuations', { id: valId, userId: uid, assetId: id, date: assetRecord.lastValuationDate, value: assetRecord.currentValue, valuationType: assetRecord.valuationSource, notes: 'Initial valuation' });
+    } catch (_) {}
   }
 
   return id;
@@ -785,12 +903,25 @@ export async function updateAsset(id, data) {
     );
   }
 
-  return db.assets.update(id, updated);
+  const res = await db.assets.update(id, updated);
+  try {
+    const full = await db.assets.get(id);
+    if (full) {
+      const { pushRecordToCloud } = await import('./supabase.js');
+      await pushRecordToCloud('assets', full);
+    }
+  } catch (e) {}
+  return res;
 }
 
 export async function deleteAsset(id) {
   await db.valuations.where('assetId').equals(id).delete();
-  return db.assets.delete(id);
+  const res = await db.assets.delete(id);
+  try {
+    const { deleteRecordFromCloud } = await import('./supabase.js');
+    await deleteRecordFromCloud('assets', id);
+  } catch (e) {}
+  return res;
 }
 
 export async function getActiveAssets(userId = getActiveUserId()) {
@@ -1468,21 +1599,17 @@ export async function setSetting(key, value) {
 export async function clearAllData() {
   await db.transaction('rw',
     [
-      db.users, db.accounts, db.transactions, db.categories, db.assets, db.valuations,
-      db.snapshots, db.snapshotBalances, db.settings,
+      db.transactions, db.assets, db.valuations,
+      db.snapshots, db.snapshotBalances,
       db.lendBorrow, db.lendBorrowRepayments, db.liabilities, db.liabilityRepayments,
-      db.subscriptions, db.insurancePolicies, db.notes, db.auditLogs, db.userPreferences
+      db.subscriptions, db.insurancePolicies, db.notes
     ],
     async () => {
-      await db.users.clear();
-      await db.accounts.clear();
       await db.transactions.clear();
-      await db.categories.clear();
       await db.assets.clear();
       await db.valuations.clear();
       await db.snapshots.clear();
       await db.snapshotBalances.clear();
-      await db.settings.clear();
       await db.lendBorrow.clear();
       await db.lendBorrowRepayments.clear();
       await db.liabilities.clear();
@@ -1490,11 +1617,32 @@ export async function clearAllData() {
       await db.subscriptions.clear();
       await db.insurancePolicies.clear();
       await db.notes.clear();
-      await db.auditLogs.clear();
-      await db.userPreferences.clear();
     }
   );
-  await seedDefaults();
+
+  // Reset all account opening balances to 0 in local Dexie
+  const accounts = await db.accounts.toArray();
+  for (const acc of accounts) {
+    await db.accounts.update(acc.id, { openingBalance: 0, updatedAt: new Date().toISOString() });
+  }
+
+  // Also clear transactions, assets, liabilities, etc. on Supabase cloud!
+  try {
+    const { getSupabase } = await import('./supabase.js');
+    const client = await getSupabase();
+    if (client) {
+      await client.from('transactions').delete().neq('id', 0);
+      await client.from('assets').delete().neq('id', 0);
+      await client.from('valuations').delete().neq('id', 0);
+      await client.from('lend_borrow').delete().neq('id', 0);
+      await client.from('liabilities').delete().neq('id', 0);
+      await client.from('subscriptions').delete().neq('id', 0);
+      await client.from('insurance_policies').delete().neq('id', 0);
+      await client.from('accounts').update({ opening_balance: 0 }).neq('id', 0);
+    }
+  } catch (err) {
+    console.warn('Cloud reset notice:', err);
+  }
 }
 
 // ── Realistic Multi-User Sample Data ──────────────────────────────────
