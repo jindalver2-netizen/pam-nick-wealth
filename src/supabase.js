@@ -7,9 +7,32 @@ import { db, getSetting, setSetting } from './db.js';
 
 let supabaseClient = null;
 
+export const DEFAULT_SUPABASE_URL = 'https://ddtbvtpwnczyniusyzio.supabase.co';
+export const DEFAULT_SUPABASE_KEY = 'sb_publishable_ZuKW6UWzXSy9Pgzj4Uyxmg_ldJo_eo5';
+
+export function toSnakeCase(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const result = {};
+  for (const key of Object.keys(obj)) {
+    const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+    result[snakeKey] = obj[key];
+  }
+  return result;
+}
+
+export function toCamelCase(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const result = {};
+  for (const key of Object.keys(obj)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    result[camelKey] = obj[key];
+  }
+  return result;
+}
+
 export async function getSupabaseConfig() {
-  const url = (await getSetting('supabase_url')) || localStorage.getItem('supabase_url') || '';
-  const key = (await getSetting('supabase_key')) || localStorage.getItem('supabase_key') || '';
+  const url = (await getSetting('supabase_url')) || localStorage.getItem('supabase_url') || DEFAULT_SUPABASE_URL;
+  const key = (await getSetting('supabase_key')) || localStorage.getItem('supabase_key') || DEFAULT_SUPABASE_KEY;
   return { url: url.trim(), key: key.trim(), isConfigured: Boolean(url.trim() && key.trim()) };
 }
 
@@ -56,6 +79,27 @@ export async function testSupabaseConnection() {
   }
 }
 
+export async function pushRecordToCloud(tableName, record) {
+  try {
+    const client = await getSupabase();
+    if (!client) return;
+    const snake = toSnakeCase(record);
+    await client.from(tableName).upsert([snake], { onConflict: 'id' });
+  } catch (err) {
+    console.warn(`Auto-push error for ${tableName}:`, err);
+  }
+}
+
+export async function deleteRecordFromCloud(tableName, id) {
+  try {
+    const client = await getSupabase();
+    if (!client) return;
+    await client.from(tableName).delete().eq('id', id);
+  } catch (err) {
+    console.warn(`Auto-delete error for ${tableName}:`, err);
+  }
+}
+
 /**
  * Sync all local Dexie tables with Supabase Cloud
  */
@@ -86,17 +130,18 @@ export async function syncAllWithSupabase() {
         .select('*');
 
       if (!pullErr && cloudRecords && cloudRecords.length > 0) {
-        // Upsert into local Dexie
-        await table.dexie.bulkPut(cloudRecords);
+        // Upsert converted camelCase records into local Dexie
+        const camelRecords = cloudRecords.map(toCamelCase);
+        await table.dexie.bulkPut(camelRecords);
       }
 
       // 2. Push local changes to Supabase
       const localRecords = await table.dexie.toArray();
       if (localRecords.length > 0) {
-        // Upsert to Supabase in batches of 50
+        const snakeRecords = localRecords.map(toSnakeCase);
         const batchSize = 50;
-        for (let i = 0; i < localRecords.length; i += batchSize) {
-          const batch = localRecords.slice(i, i + batchSize);
+        for (let i = 0; i < snakeRecords.length; i += batchSize) {
+          const batch = snakeRecords.slice(i, i + batchSize);
           const { error: pushErr } = await client
             .from(table.name)
             .upsert(batch, { onConflict: 'id' });
@@ -311,3 +356,4 @@ create policy "Allow all operations for anon" on subscriptions for all using (tr
 create policy "Allow all operations for anon" on insurance_policies for all using (true) with check (true);
 `;
 }
+

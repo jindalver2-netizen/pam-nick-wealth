@@ -857,6 +857,7 @@ async function saveQuickEntry(parsed, inputEl, previewContainer) {
     inputEl.value = '';
     previewContainer.innerHTML = '';
     handleRoute(); // refresh current view
+    syncAllWithSupabase().catch(() => {});
   } catch (err) {
     showToast('Failed to save: ' + err.message, 'error');
   }
@@ -989,6 +990,7 @@ async function showTransactionModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -2016,6 +2018,7 @@ async function showSubscriptionModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -2161,6 +2164,7 @@ async function showAccountModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -2532,6 +2536,7 @@ async function showAssetModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -3197,6 +3202,7 @@ async function showLendBorrowModal(defaultType = 'lent') {
       showToast('Record saved and account balance updated!', 'success');
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -3261,6 +3267,7 @@ async function showLendRepaymentModal(entry) {
       showToast(`Repayment of ${formatCurrency(amount)} recorded!`, 'success');
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -3562,6 +3569,7 @@ async function showLiabilityModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -3622,6 +3630,7 @@ async function showLiabilityRepaymentModal(loan) {
       showToast(`EMI payment of ${formatCurrency(amount)} recorded!`, 'success');
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -3876,6 +3885,7 @@ async function showInsuranceModal(data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -4488,6 +4498,7 @@ async function showCategoryModal(type, data = {}) {
       }
       closeModal();
       handleRoute();
+      syncAllWithSupabase().catch(() => {});
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
     }
@@ -4572,16 +4583,25 @@ async function init() {
     handleRoute();
   });
 
-  // Background Supabase Sync if configured
+  // Automatic Supabase Cloud Sync on Launch
   getSupabaseConfig().then(cfg => {
     if (cfg.isConfigured) {
       syncAllWithSupabase().then(res => {
         if (res.success) {
           console.log('Background Supabase Sync complete');
+          handleRoute();
         }
       }).catch(err => console.warn('Background Supabase sync notice:', err));
     }
   }).catch(() => {});
+
+  // Automatic Cross-Device Sync on Window/Mobile Tab Focus and every 45 seconds
+  window.addEventListener('focus', () => {
+    syncAllWithSupabase().then(() => handleRoute()).catch(() => {});
+  });
+  setInterval(() => {
+    syncAllWithSupabase().catch(() => {});
+  }, 45000);
 
   // Route handler
   window.addEventListener('hashchange', handleRoute);
