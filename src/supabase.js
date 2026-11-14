@@ -138,15 +138,18 @@ export function sanitizeForCloud(tableName, record) {
 export async function pushRecordToCloud(tableName, record) {
   try {
     const client = await getSupabase();
-    if (!client || !record) return;
+    if (!client || !record) return false;
     const sanitized = sanitizeForCloud(tableName, record);
-    if (sanitized.id === undefined || sanitized.id === null) return;
+    if (sanitized.id === undefined || sanitized.id === null) return false;
     const { error } = await client.from(tableName).upsert([sanitized], { onConflict: 'id' });
     if (error) {
       console.warn(`Auto-push warning for ${tableName}:`, error.message);
+      return false;
     }
+    return true;
   } catch (err) {
     console.warn(`Auto-push error for ${tableName}:`, err);
+    return false;
   }
 }
 
@@ -162,6 +165,8 @@ export async function deleteRecordFromCloud(tableName, id) {
 
 /**
  * Sync all local Dexie tables with Supabase Cloud
+ * Cloud-authoritative reconciliation: deleted records on cloud are pruned locally,
+ * preventing zombie resurrection of deleted users and records across devices.
  */
 export async function syncAllWithSupabase() {
   const client = await getSupabase();
@@ -184,21 +189,43 @@ export async function syncAllWithSupabase() {
 
   for (const table of syncTables) {
     try {
-      // 1. Pull latest from Supabase
+      // 1. Pull authoritative data from Supabase
       const { data: cloudRecords, error: pullErr } = await client
         .from(table.name)
         .select('*');
 
-      if (!pullErr && cloudRecords && cloudRecords.length > 0) {
-        // Upsert converted camelCase records into local Dexie
-        const camelRecords = cloudRecords.map(toCamelCase);
+      if (pullErr) {
+        throw new Error(pullErr.message);
+      }
+
+      const cloudList = cloudRecords || [];
+      const cloudIds = new Set(cloudList.map(r => r.id));
+      const localRecords = await table.dexie.toArray();
+
+      // 2. Reconciliation: Delete local records that were deleted on cloud!
+      // Any local record that does NOT exist in cloud and is not marked as local offline creation
+      // was deleted from another device or directly on cloud. Delete it from local Dexie!
+      for (const local of localRecords) {
+        if (!cloudIds.has(local.id) && !local._pendingSync) {
+          await table.dexie.delete(local.id);
+        }
+      }
+
+      // 3. Upsert cloud records into local Dexie
+      if (cloudList.length > 0) {
+        const camelRecords = cloudList.map(rec => {
+          const camel = toCamelCase(rec);
+          delete camel.pendingSync;
+          delete camel._pendingSync;
+          return camel;
+        });
         await table.dexie.bulkPut(camelRecords);
       }
 
-      // 2. Push local changes to Supabase
-      const localRecords = await table.dexie.toArray();
-      if (localRecords.length > 0) {
-        const sanitizedRecords = localRecords
+      // 4. Push ONLY newly created / modified local records that are marked _pendingSync
+      const pendingRecords = (await table.dexie.toArray()).filter(r => r._pendingSync);
+      if (pendingRecords.length > 0) {
+        const sanitizedRecords = pendingRecords
           .map(r => sanitizeForCloud(table.name, r))
           .filter(r => r && r.id !== undefined && r.id !== null);
 
@@ -210,9 +237,16 @@ export async function syncAllWithSupabase() {
             .upsert(batch, { onConflict: 'id' });
           if (pushErr) {
             console.warn(`Sync push warning for ${table.name}:`, pushErr.message);
+          } else {
+            // Once pushed, remove _pendingSync flag locally
+            for (const r of pendingRecords) {
+              delete r._pendingSync;
+              await table.dexie.put(r);
+            }
           }
         }
       }
+
       syncedCount++;
     } catch (tblErr) {
       console.warn(`Sync table error for ${table.name}:`, tblErr);

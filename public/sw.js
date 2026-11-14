@@ -1,5 +1,5 @@
-// Nick Wealth OS Service Worker — Offline caching
-const CACHE_NAME = 'nick-wealth-v3';
+// PraNick Wealth OS Service Worker — Offline caching
+const CACHE_NAME = 'pranick-wealth-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

@@ -370,12 +370,36 @@ const DEFAULT_INCOME_CATEGORIES = [
 
 export async function seedDefaults() {
   const userCount = await db.users.count();
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
+
   if (userCount === 0) {
-    const now = new Date().toISOString();
-    await db.users.bulkAdd([
-      { id: 1, username: 'pratima', name: 'Pratima', email: 'pratima@pranick.com', phone: '', role: 'user', pin: '1234', status: 'active', avatar: '👸', createdAt: now, updatedAt: now },
-      { id: 2, username: 'nick', name: 'Lokesh Jindal (Admin)', email: 'dmlxj007@gmail.com', phone: '', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
-    ]);
+    // Check if Supabase already has authoritative users before inserting defaults
+    try {
+      const { getSupabase, toCamelCase } = await import('./supabase.js');
+      const client = await getSupabase();
+      if (client) {
+        const { data: cloudUsers } = await client.from('users').select('*');
+        if (cloudUsers && cloudUsers.length > 0) {
+          await db.users.bulkAdd(cloudUsers.map(toCamelCase));
+        } else {
+          await db.users.bulkAdd([
+            { id: 1, username: 'pratima', name: 'Pratima Jindal', email: 'pratima@gmail.com', phone: '', role: 'user', pin: '1234', status: 'active', avatar: '👸', createdAt: now, updatedAt: now },
+            { id: 2, username: 'nick', name: 'Lokesh Jindal (Admin)', email: 'dmlxj007@gmail.com', phone: '', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
+          ]);
+        }
+      } else {
+        await db.users.bulkAdd([
+          { id: 1, username: 'pratima', name: 'Pratima Jindal', email: 'pratima@gmail.com', phone: '', role: 'user', pin: '1234', status: 'active', avatar: '👸', createdAt: now, updatedAt: now },
+          { id: 2, username: 'nick', name: 'Lokesh Jindal (Admin)', email: 'dmlxj007@gmail.com', phone: '', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
+        ]);
+      }
+    } catch (_) {
+      await db.users.bulkAdd([
+        { id: 1, username: 'pratima', name: 'Pratima Jindal', email: 'pratima@gmail.com', phone: '', role: 'user', pin: '1234', status: 'active', avatar: '👸', createdAt: now, updatedAt: now },
+        { id: 2, username: 'nick', name: 'Lokesh Jindal (Admin)', email: 'dmlxj007@gmail.com', phone: '', role: 'admin', pin: '0000', status: 'active', avatar: '👑', createdAt: now, updatedAt: now },
+      ]);
+    }
   }
 
   const catCount = await db.categories.count();
